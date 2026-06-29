@@ -1,0 +1,5 @@
+Flask>=2.0.0
+APScheduler>=3.9.0
+requests>=2.30.0
+lxml>=4.9.2
+pysocks>=1.7.1

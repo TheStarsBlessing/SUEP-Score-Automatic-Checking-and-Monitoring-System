@@ -1,0 +1,22 @@
+{
+    "username": "",
+    "password": "",
+    "semester_id": "404",
+    "query_interval": 300,
+    "retry_interval": 60,
+    "max_retries": 2,
+    "email_enabled": false,
+    "smtp_server": "",
+    "smtp_port": 25,
+    "sender_email": "",
+    "sender_password": "",
+    "receiver_email": "",
+    "semester_str": "2025-2026.2",
+    "notification_method": "pushplus",
+    "serverchan_token": "",
+    "pushplus_token": "",
+    "wework_webhook": "",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "bark_key": ""
+}

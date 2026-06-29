@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUEP 成绩自动查询</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding: 20px; background-color: #f8f9fa; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .log-area { height: 200px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 0.9rem; font-family: monospace; white-space: pre-wrap; }
+        .status-badge { font-size: 1.2rem; }
+        .card { margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        .checkbox-group label { margin-right: 15px; }
+        .table-wrapper { max-height: 500px; overflow-y: auto; }
+        .table th { position: sticky; top: 0; background: #fff; z-index: 10; border-bottom: 2px solid #dee2e6; }
+        .table td, .table th { white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">📊 SUEP 成绩自动查询系统</h1>
+        
+        <!-- 状态栏 -->
+        <div class="card">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="badge bg-secondary status-badge" id="status-badge">未启动</span>
+                    <span id="grade-count" class="ms-3">成绩数: 0</span>
+                </div>
+                <div>
+                    <button class="btn btn-success me-2" id="btn-start">▶ 开始监控</button>
+                    <button class="btn btn-danger me-2" id="btn-stop" disabled>⏹ 停止</button>
+                    <button class="btn btn-primary me-2" id="btn-query">🔍 立即查询</button>
+                    <button class="btn btn-info" id="btn-test-notify">📨 测试通知</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 设置 -->
+        <div class="card">
+            <div class="card-header">⚙️ 设置</div>
+            <div class="card-body">
+                <form id="config-form">
+                    <!-- 基本设置 -->
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label class="form-label">学号</label>
+                            <input type="text" class="form-control" id="username" value="{{ config.username }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">密码</label>
+                            <input type="password" class="form-control" id="password" value="{{ config.password }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">学年学期</label>
+                            <input type="text" class="form-control" id="semester_str" value="{{ config.semester_str }}" placeholder="如 2025-2026.2">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">查询间隔 (秒)</label>
+                            <input type="number" class="form-control" id="query_interval" value="{{ config.query_interval }}">
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label class="form-label">重试间隔 (秒)</label>
+                            <input type="number" class="form-control" id="retry_interval" value="{{ config.retry_interval }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">最大重试次数</label>
+                            <input type="number" class="form-control" id="max_retries" value="{{ config.max_retries }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">通知方式 (多选)</label>
+                            <div class="checkbox-group" id="notification-methods">
+                                <label><input type="checkbox" value="email" {% if 'email' in config.notification_methods %}checked{% endif %}> 邮件</label>
+                                <label><input type="checkbox" value="serverchan" {% if 'serverchan' in config.notification_methods %}checked{% endif %}> Server酱</label>
+                                <label><input type="checkbox" value="pushplus" {% if 'pushplus' in config.notification_methods %}checked{% endif %}> Pushplus</label>
+                                <label><input type="checkbox" value="wework" {% if 'wework' in config.notification_methods %}checked{% endif %}> 企业微信</label>
+                                <label><input type="checkbox" value="desktop" {% if 'desktop' in config.notification_methods %}checked{% endif %}> 桌面弹窗</label>
+                                <label><input type="checkbox" value="telegram" {% if 'telegram' in config.notification_methods %}checked{% endif %}> Telegram</label>
+                                <label><input type="checkbox" value="bark" {% if 'bark' in config.notification_methods %}checked{% endif %}> Bark</label>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 邮件配置 -->
+                    <div class="row mt-3">
+                        <div class="col-md-4">
+                            <label class="form-label">SMTP 服务器</label>
+                            <input type="text" class="form-control" id="smtp_server" value="{{ config.smtp_server }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">端口</label>
+                            <input type="number" class="form-control" id="smtp_port" value="{{ config.smtp_port }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">发件邮箱</label>
+                            <input type="email" class="form-control" id="sender_email" value="{{ config.sender_email }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">发件密码(授权码)</label>
+                            <input type="password" class="form-control" id="sender_password" value="{{ config.sender_password }}">
+                        </div>
+                    </div>
+                    <!-- 各通知方式专用配置 -->
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label class="form-label">收件邮箱</label>
+                            <input type="email" class="form-control" id="receiver_email" value="{{ config.receiver_email }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Server酱 SendKey</label>
+                            <input type="text" class="form-control" id="serverchan_token" value="{{ config.serverchan_token }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Pushplus Token</label>
+                            <input type="text" class="form-control" id="pushplus_token" value="{{ config.pushplus_token }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">企业微信 Webhook</label>
+                            <input type="text" class="form-control" id="wework_webhook" value="{{ config.wework_webhook }}">
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Telegram Bot Token</label>
+                            <input type="text" class="form-control" id="telegram_bot_token" value="{{ config.telegram_bot_token }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Telegram Chat ID</label>
+                            <input type="text" class="form-control" id="telegram_chat_id" value="{{ config.telegram_chat_id }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Bark Key</label>
+                            <input type="text" class="form-control" id="bark_key" value="{{ config.bark_key }}">
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <button type="button" class="btn btn-primary" id="btn-save-config">💾 保存设置</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 成绩表格 -->
+        <div class="card">
+            <div class="card-header">📋 成绩列表</div>
+            <div class="card-body table-wrapper">
+                <table class="table table-striped table-hover" id="grade-table">
+                    <thead>
+                        <tr>
+                            <th>学年学期</th><th>课程代码</th><th>课程序号</th><th>课程名称</th>
+                            <th>课程类别</th><th>学分</th><th>正考总评</th><th>最终</th><th>绩点</th>
+                        </tr>
+                    </thead>
+                    <tbody id="grade-body">
+                        <!-- 动态渲染 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 日志 -->
+        <div class="card">
+            <div class="card-header">📜 日志</div>
+            <div class="card-body">
+                <div class="log-area" id="log-area"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // ---------- 核心函数 ----------
+        function updateStatus(running) {
+            if (running) {
+                $('#status-badge').removeClass('bg-secondary').addClass('bg-success').text('监控中');
+                $('#btn-start').prop('disabled', true);
+                $('#btn-stop').prop('disabled', false);
+            } else {
+                $('#status-badge').removeClass('bg-success').addClass('bg-secondary').text('已停止');
+                $('#btn-start').prop('disabled', false);
+                $('#btn-stop').prop('disabled', true);
+            }
+        }
+
+        function renderGrades(grades) {
+            let html = '';
+            if (!grades || grades.length === 0) {
+                html = '<tr><td colspan="9" class="text-center">暂无成绩数据</td></tr>';
+            } else {
+                grades.forEach(g => {
+                    html += `<tr>
+                        <td>${g.semester || ''}</td>
+                        <td>${g.code || ''}</td>
+                        <td>${g.seq || ''}</td>
+                        <td>${g.name || ''}</td>
+                        <td>${g.category || ''}</td>
+                        <td>${g.credit || ''}</td>
+                        <td>${g.score || ''}</td>
+                        <td>${g.final || ''}</td>
+                        <td>${g.gpa || ''}</td>
+                    </tr>`;
+                });
+            }
+            $('#grade-body').html(html);
+        }
+
+        function renderLogs(logs) {
+            if (Array.isArray(logs)) {
+                $('#log-area').text(logs.join(''));
+            } else {
+                $('#log-area').text(logs);
+            }
+            const area = document.getElementById('log-area');
+            if (area) area.scrollTop = area.scrollHeight;
+        }
+
+        function refreshStatus() {
+            // 获取状态（运行、日志、成绩总数）
+            $.get('/api/status', function(data) {
+                updateStatus(data.running);
+                $('#grade-count').text(`成绩数: ${data.grade_count}`);
+                renderLogs(data.logs);
+            });
+            // 单独获取成绩列表（保证完整）
+            $.get('/api/grades', function(grades) {
+                renderGrades(grades);
+            });
+        }
+
+        function loadConfig() {
+            $.get('/api/config', function(data) {
+                $('#username').val(data.username);
+                $('#password').val(data.password);
+                $('#semester_str').val(data.semester_str);
+                $('#query_interval').val(data.query_interval);
+                $('#retry_interval').val(data.retry_interval);
+                $('#max_retries').val(data.max_retries);
+                $('#smtp_server').val(data.smtp_server);
+                $('#smtp_port').val(data.smtp_port);
+                $('#sender_email').val(data.sender_email);
+                $('#sender_password').val(data.sender_password);
+                $('#receiver_email').val(data.receiver_email);
+                $('#serverchan_token').val(data.serverchan_token);
+                $('#pushplus_token').val(data.pushplus_token);
+                $('#wework_webhook').val(data.wework_webhook);
+                $('#telegram_bot_token').val(data.telegram_bot_token);
+                $('#telegram_chat_id').val(data.telegram_chat_id);
+                $('#bark_key').val(data.bark_key);
+                // 通知方式
+                let methods = data.notification_methods || [];
+                $('#notification-methods input[type="checkbox"]').each(function() {
+                    $(this).prop('checked', methods.includes($(this).val()));
+                });
+            });
+        }
+
+        // ---------- 事件绑定 ----------
+        $('#btn-start').click(function() {
+            $.post('/api/start', function() {
+                refreshStatus();
+            });
+        });
+
+        $('#btn-stop').click(function() {
+            $.post('/api/stop', function() {
+                refreshStatus();
+            });
+        });
+
+        $('#btn-query').click(function() {
+            $.post('/api/query', function(data) {
+                if (data.success) {
+                    alert('查询成功！如有变动将发送通知。');
+                    refreshStatus();
+                } else {
+                    alert('查询失败：' + data.error);
+                }
+            });
+        });
+
+        $('#btn-test-notify').click(function() {
+            $.post('/api/test_notification', function(data) {
+                if (data.success) {
+                    alert('测试通知已发送，请检查是否收到。');
+                } else {
+                    alert('测试通知发送失败，请检查配置和网络。');
+                }
+            });
+        });
+
+        $('#btn-save-config').click(function() {
+            let config = {
+                username: $('#username').val(),
+                password: $('#password').val(),
+                semester_str: $('#semester_str').val(),
+                query_interval: parseInt($('#query_interval').val()),
+                retry_interval: parseInt($('#retry_interval').val()),
+                max_retries: parseInt($('#max_retries').val()),
+                smtp_server: $('#smtp_server').val(),
+                smtp_port: parseInt($('#smtp_port').val()),
+                sender_email: $('#sender_email').val(),
+                sender_password: $('#sender_password').val(),
+                receiver_email: $('#receiver_email').val(),
+                serverchan_token: $('#serverchan_token').val(),
+                pushplus_token: $('#pushplus_token').val(),
+                wework_webhook: $('#wework_webhook').val(),
+                telegram_bot_token: $('#telegram_bot_token').val(),
+                telegram_chat_id: $('#telegram_chat_id').val(),
+                bark_key: $('#bark_key').val(),
+                notification_methods: $('#notification-methods input:checkbox:checked').map(function() {
+                    return $(this).val();
+                }).get()
+            };
+            $.ajax({
+                url: '/api/config',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(config),
+                success: function() {
+                    alert('配置已保存！');
+                    refreshStatus();
+                },
+                error: function() {
+                    alert('保存失败，请检查网络或服务器日志。');
+                }
+            });
+        });
+
+        // 初始加载与定时刷新（每5秒）
+        $(document).ready(function() {
+            loadConfig();
+            refreshStatus();
+            setInterval(refreshStatus, 5000);
+        });
+    </script>
+</body>
+</html>
