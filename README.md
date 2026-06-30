@@ -22,6 +22,15 @@
 
 ---
 
+## 🖥️ 界面参考
+
+ - 桌面版
+<img width="1272" height="905" alt="Screenshot_20260701_010918" src="https://github.com/user-attachments/assets/3b871b19-1785-4913-a35d-6a93018d226c" />
+
+ - 网页版
+<img width="3000" height="4361" alt="Screenshot_20260630_194221_com_trim_app_MainActivity" src="https://github.com/user-attachments/assets/d4c4a941-e75d-4a01-ab64-e1081278e362" />
+
+
 ## 🚀 快速开始
 
 ### 1. 环境要求
