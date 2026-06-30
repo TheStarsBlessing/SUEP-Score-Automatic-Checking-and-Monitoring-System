@@ -300,5 +300,5 @@ A：确保 `docker-compose.yml` 中包含 `extra_hosts` 配置，并确认代理
 
 ## 📄 许可证
 
-本项目采用 **MIT License**，详情请见 [LICENSE](LICENSE) 文件（如有）。  
+本项目采用 **MIT License**，详情请见 [LICENSE](LICENSE) 文件。  
 使用本工具即表示您已理解并同意自行承担所有风险，作者不对因使用本工具造成的任何后果负责。
