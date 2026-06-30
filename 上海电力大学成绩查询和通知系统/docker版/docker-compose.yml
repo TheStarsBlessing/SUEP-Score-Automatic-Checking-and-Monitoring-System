@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  grade-monitor:
+    build: .
+    container_name: grade-monitor
+    restart: unless-stopped
+    ports:
+      - "15029:15029"          # 映射 Web 端口到宿主机
+    environment:
+      - PROXY_ENABLED=true     # 启用代理
+      - PROXY_URL=socks5://host.docker.internal:1080   # 访问宿主机上的 EasyConnect
+      - TZ=Asia/Shanghai       # 设置时区
+    volumes:
+      - ./data:/app/data       # 持久化配置、成绩和日志（需在 app 中调整路径）
+      - ./logs:/app/logs       # 日志目录
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 使容器能解析宿主机（Linux 也可用）
+    stdin_open: true
+    tty: true

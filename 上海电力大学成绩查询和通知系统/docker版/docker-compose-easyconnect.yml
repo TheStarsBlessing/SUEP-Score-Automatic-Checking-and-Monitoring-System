@@ -1,0 +1,21 @@
+services:  
+  easyconnect:
+    image: hagb/docker-easyconnect:7.6.3
+    container_name: easyconnect
+    environment:
+      - PASSWORD=1234
+      # - PING_ADDR=172.16.1.1   # 注释项，可忽略
+      - USE_NOVNC=1
+    volumes:
+      - /vol2/1000/Docker/easyconnect2/data:/root
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - 5910:5901
+      - 1080:1080
+      - 8888:8888
+      - 54530:54530
+      - 1081:8080
+    tty: true
