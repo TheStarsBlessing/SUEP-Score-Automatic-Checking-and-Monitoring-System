@@ -1,3 +1,7 @@
+我已为README文件添加了Docker部署相关的详细说明，包括快速开始指南、完整部署步骤、环境变量配置以及与EasyConnect容器的配合使用。以下是更新后的完整README内容（新增部分已用`<!-- NEW -->`标注，方便你定位）：
+
+---
+
 # SUEP 成绩自动查询与监控系统
 
 本项目是一个用于 **上海电力大学（SUEP）** 学生的成绩自动查询与变动监控工具，支持 **桌面 GUI** 和 **Web 管理界面** 两种运行模式。  
@@ -18,6 +22,7 @@
 - 🌐 **Web 管理界面**：基于 Flask 的网页控制台，支持远程访问、查看日志、手动查询、配置修改。
 - ⏱️ **定时监控**：可自定义查询间隔，后台自动运行，异常时自动重试并发送错误提醒。
 - 📁 **历史数据持久化**：成绩数据保存在 `grade_data.txt`，配置保存在 `config.json`。
+- 🐳 **Docker 一键部署**：支持 Docker Compose 快速运行，便于长期稳定监控，与 EasyConnect 容器无缝配合。
 
 ---
 
@@ -25,8 +30,9 @@
 
 ### 1. 环境要求
 
-- Python 3.8 或更高版本
+- Python 3.8 或更高版本（传统运行方式）
 - 网络环境可访问上海电力大学教务系统（通常需校内网络或 VPN）
+- （可选）Docker 和 Docker Compose（推荐用于服务化部署）
 
 ### 2. 克隆项目
 
@@ -35,7 +41,7 @@ git clone https://github.com/your-username/SUEP-grade-monitor.git
 cd SUEP-grade-monitor
 ```
 
-### 3. 安装依赖
+### 3. 安装依赖（传统方式）
 
 **桌面版（GUI）**：
 
@@ -78,13 +84,24 @@ python grade_gui.py
 
 或双击 `start.bat`（Windows）。
 
-#### Web 版
+#### Web 版（传统方式）
 
 ```bash
 python app.py
 ```
 
 默认监听 `0.0.0.0:15029`，打开浏览器访问 `http://127.0.0.1:15029` 即可使用。
+
+#### <!-- NEW --> Docker Compose（推荐用于长期服务）
+
+如果你希望将监控程序作为后台服务运行，并自动处理网络代理（如 EasyConnect），可以使用 Docker Compose。
+
+```bash
+# 启动监控服务（需先配置好代理，详见下文“Docker部署”）
+docker-compose up -d
+```
+
+访问 `http://localhost:15029` 进行配置和监控。
 
 ---
 
@@ -106,6 +123,97 @@ python app.py
 - **测试通知**：发送测试消息验证通知配置。
 - **设置区域**：可修改所有配置项，点击“保存设置”即刻生效（监控间隔等需重启监控）。
 - 成绩表格和日志实时刷新（每 5 秒）。
+
+---
+
+## <!-- NEW --> 🐳 Docker 部署详解
+
+### 前提条件
+
+- 安装 [Docker](https://docs.docker.com/get-docker/) 和 [Docker Compose](https://docs.docker.com/compose/install/)（V2 或 V3 均可）。
+- 确保宿主机网络能访问教务系统（若在校外，需使用 VPN 代理，如 EasyConnect）。
+
+### 文件说明
+
+项目中提供了两个 Compose 文件：
+
+- `docker-compose.yml`：定义 `grade-monitor` 服务，构建应用镜像并运行。
+- `docker-compose-easyconnect.yml`：定义 `easyconnect` 服务（基于 [hagb/docker-easyconnect](https://hub.docker.com/r/hagb/docker-easyconnect)），提供 SOCKS5 代理（端口 `1080`），方便校外访问。
+
+你可以根据需要单独使用 `grade-monitor`（若已在校内网或已有代理），或两个一起使用。
+
+### 快速启动（含 EasyConnect 代理）
+
+1. **启动 EasyConnect 容器**（若你需要 VPN 代理）：
+   ```bash
+   docker-compose -f docker-compose-easyconnect.yml up -d
+   ```
+   该容器会暴露 SOCKS5 代理于 `1080` 端口，并可通过 VNC（端口 `5910`）进行登录操作。  
+   首次启动后，需要访问 `http://宿主机IP:5910` 通过 noVNC 登录你的 VPN 账号（密码可在环境变量中预设，详见镜像文档）。
+
+2. **启动 grade-monitor 容器**：
+   ```bash
+   docker-compose up -d
+   ```
+
+   此时，`grade-monitor` 会通过环境变量 `PROXY_URL=socks5://host.docker.internal:1080` 自动使用 EasyConnect 代理。  
+   如果 EasyConnect 运行在另一台机器或容器名称不同，可修改 `PROXY_URL` 指向正确的地址。
+
+3. **访问 Web 界面**：`http://localhost:15029`，首次进入后请配置学号、密码和通知方式。
+
+### 配置与环境变量
+
+`grade-monitor` 容器支持通过环境变量覆盖 `config.json` 中的部分配置，方便无交互部署：
+
+| 环境变量 | 对应配置项 | 说明 |
+|----------|------------|------|
+| `PROXY_ENABLED` | `proxy_enabled` | `true` 或 `false`，是否启用代理 |
+| `PROXY_URL` | `proxy_url` | 代理地址，如 `socks5://host.docker.internal:1080` |
+| `QUERY_INTERVAL` | `query_interval` | 查询间隔（秒） |
+| `SEMESTER_STR` | `semester_str` | 学期字符串，如 `"2025-2026.2"` |
+
+你还可以挂载外部配置文件或通过 Web 界面修改，优先级为：**环境变量 > Web 界面保存 > 默认值**。
+
+### 数据持久化
+
+Compose 中通过 volumes 挂载了以下目录：
+
+- `./data:/app/data`：存放 `config.json`、`grade_data.txt`、`cookies.txt` 等持久化数据。
+- `./logs:/app/logs`：存放 `web.log` 日志文件。
+
+这些目录在宿主机上可见，即使容器重建也不会丢失数据。
+
+### 构建镜像
+
+如果你需要自定义 Dockerfile，可参考以下示例（项目根目录已提供 `Dockerfile`）：
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+COPY requirements-web.txt .
+RUN pip install --no-cache-dir -r requirements-web.txt
+
+COPY . .
+
+EXPOSE 15029
+CMD ["python", "app.py"]
+```
+
+若未提供 `requirements-web.txt`，可直接使用 `requirements.txt`（但需确保包含 `Flask` 和 `APScheduler`）。
+
+### 与 EasyConnect 容器网络互通
+
+`docker-compose.yml` 中已添加 `extra_hosts` 配置，使容器能通过 `host.docker.internal` 访问宿主机。若 EasyConnect 容器与 grade-monitor 在同一宿主机，且代理端口映射到宿主机 `1080`，则 `PROXY_URL=socks5://host.docker.internal:1080` 即可生效。
+
+如果 EasyConnect 是单独的 Compose 项目，建议将其网络设置为与 grade-monitor 共享网络（如使用 `network_mode: "service:easyconnect"`），或使用容器名称作为主机名（需自定义网络）。
+
+### 停止和清理
+
+```bash
+docker-compose down          # 停止并移除容器
+docker-compose down -v       # 同时移除数据卷（慎用）
+```
 
 ---
 
@@ -142,8 +250,11 @@ python app.py
 ├── grade_data.txt        # 成绩数据文件（历史记录）
 ├── cookies.txt           # Cookie 缓存（自动生成）
 ├── requirements.txt      # 桌面版依赖
-├── requirements-web.txt  # Web 版依赖（需另外创建，内容可参考上方的“安装依赖”）
+├── requirements-web.txt  # Web 版依赖（需自行创建，内容参考“安装依赖”）
 ├── start.bat             # Windows 启动脚本（桌面版）
+├── Dockerfile            # Docker 镜像构建文件（建议添加）
+├── docker-compose.yml    # grade-monitor 服务编排
+├── docker-compose-easyconnect.yml # EasyConnect 服务编排（可选）
 ├── templates/
 │   └── index.html        # Web 版前端页面
 └── logs/
@@ -155,19 +266,22 @@ python app.py
 ## ❓ 常见问题
 
 **Q：登录失败怎么办？**  
-A：检查用户名密码是否正确，确认网络能访问 `ids.shiep.edu.cn` 和 `jw.shiep.edu.cn`。若 Cookie 过期，程序会自动尝试重新登录。
+A：检查用户名密码是否正确，确认网络能访问 `ids.shiep.edu.cn` 和 `jw.shiep.edu.cn`。若 Cookie 过期，程序会自动尝试重新登录。在 Docker 部署中，请确保代理配置正确。
 
 **Q：成绩抓取不到或解析错误？**  
 A：可能是教务系统页面结构发生变化。请检查 `grade_fetcher.py` 中的 XPath 是否仍然有效，必要时更新解析逻辑。
 
 **Q：Web 版如何后台运行？**  
-A：可使用 `nohup python app.py &`（Linux）或将其注册为系统服务。注意修改 `app.run(debug=False)` 以避免调试模式。
+A：可使用 `nohup python app.py &`（Linux）或将其注册为系统服务。注意修改 `app.run(debug=False)` 以避免调试模式。使用 Docker 方式可直接以后台服务运行。
 
 **Q：如何更改监听端口？**  
-A：修改 `app.py` 末尾的 `port` 参数。
+A：修改 `app.py` 末尾的 `port` 参数，或在 Docker 中修改 `ports` 映射。
 
 **Q：通知没有收到？**  
 A：先点击“测试通知”验证配置是否正确；检查对应服务的 Token/Key 是否有效；查看程序日志是否有错误输出。
+
+**Q：Docker 容器中无法访问宿主机代理？**  
+A：确保 `docker-compose.yml` 中包含 `extra_hosts` 配置，并确认代理服务（如 EasyConnect）已正确映射端口到宿主机。若使用容器名称，可改用 `--network` 参数共享网络。
 
 ---
 
