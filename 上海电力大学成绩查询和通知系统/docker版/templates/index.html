@@ -16,6 +16,8 @@
         .table-wrapper { max-height: 500px; overflow-y: auto; }
         .table th { position: sticky; top: 0; background: #fff; z-index: 10; border-bottom: 2px solid #dee2e6; }
         .table td, .table th { white-space: nowrap; }
+        .info-line { display: flex; gap: 20px; flex-wrap: wrap; }
+        .info-item { font-size: 0.95rem; }
     </style>
 </head>
 <body>
@@ -24,10 +26,11 @@
         
         <!-- 状态栏 -->
         <div class="card">
-            <div class="card-body d-flex justify-content-between align-items-center">
-                <div>
+            <div class="card-body d-flex justify-content-between align-items-center flex-wrap">
+                <div class="info-line">
                     <span class="badge bg-secondary status-badge" id="status-badge">未启动</span>
-                    <span id="grade-count" class="ms-3">成绩数: 0</span>
+                    <span id="grade-count" class="info-item">成绩数: 0</span>
+                    <span id="last-query-time" class="info-item">最新查询: 暂无</span>
                 </div>
                 <div>
                     <button class="btn btn-success me-2" id="btn-start">▶ 开始监控</button>
@@ -189,7 +192,7 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // ---------- 核心函数 ----------
-        function updateStatus(running) {
+        function updateStatus(running, lastTime) {
             if (running) {
                 $('#status-badge').removeClass('bg-secondary').addClass('bg-success').text('监控中');
                 $('#btn-start').prop('disabled', true);
@@ -198,6 +201,11 @@
                 $('#status-badge').removeClass('bg-success').addClass('bg-secondary').text('已停止');
                 $('#btn-start').prop('disabled', false);
                 $('#btn-stop').prop('disabled', true);
+            }
+            if (lastTime) {
+                $('#last-query-time').text('最新查询: ' + lastTime);
+            } else {
+                $('#last-query-time').text('最新查询: 暂无');
             }
         }
 
@@ -234,9 +242,9 @@
         }
 
         function refreshStatus() {
-            // 获取状态（运行、日志、成绩总数）
+            // 获取状态（运行、日志、成绩总数、最新查询时间）
             $.get('/api/status', function(data) {
-                updateStatus(data.running);
+                updateStatus(data.running, data.last_query_time);
                 $('#grade-count').text(`成绩数: ${data.grade_count}`);
                 renderLogs(data.logs);
             });

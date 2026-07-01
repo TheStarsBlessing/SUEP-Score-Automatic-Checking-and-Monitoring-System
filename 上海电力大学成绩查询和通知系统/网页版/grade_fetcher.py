@@ -72,6 +72,7 @@ class GradeFetcher:
 
     @staticmethod
     def save_to_file(grades: list, filename='grade_data.txt'):
+        """保存成绩到指定文件，默认 grade_data.txt"""
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('学年学期\t课程代码\t课程序号\t课程名称\t课程类别\t学分\t正考总评成绩\t最终\t绩点\n')
             for g in grades:
@@ -80,6 +81,7 @@ class GradeFetcher:
 
     @staticmethod
     def load_from_file(filename='grade_data.txt') -> list:
+        """从指定文件加载成绩，默认 grade_data.txt"""
         if not os.path.exists(filename):
             return []
         with open(filename, 'r', encoding='utf-8') as f:

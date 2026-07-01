@@ -28,6 +28,7 @@ DEFAULT_CONFIG = {
     "bark_key": "",
     "proxy_enabled": True,
     "proxy_url": "socks5://easyconnect:1080",   # 容器内默认使用服务名
+    "log_retention_days": 7                     # 新增：日志保留天数
 }
 
 def load_config():

@@ -71,7 +71,17 @@ class GradeFetcher:
         return grades
 
     @staticmethod
-    def save_to_file(grades: list, filename='grade_data.txt'):
+    def get_filename(semester_str: str, data_dir='data') -> str:
+        """根据学期字符串生成成绩文件名"""
+        os.makedirs(data_dir, exist_ok=True)
+        # 替换可能导致文件路径问题的字符
+        safe_sem = semester_str.replace('/', '_').replace('\\', '_')
+        return os.path.join(data_dir, f"grade_data_{safe_sem}.txt")
+
+    @staticmethod
+    def save_to_file(grades: list, semester_str: str, data_dir='data'):
+        """保存成绩到学期对应的文件"""
+        filename = GradeFetcher.get_filename(semester_str, data_dir)
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('学年学期\t课程代码\t课程序号\t课程名称\t课程类别\t学分\t正考总评成绩\t最终\t绩点\n')
             for g in grades:
@@ -79,11 +89,13 @@ class GradeFetcher:
                 f.write(line)
 
     @staticmethod
-    def load_from_file(filename='grade_data.txt') -> list:
+    def load_from_file(semester_str: str, data_dir='data') -> list:
+        """从学期对应的文件加载成绩"""
+        filename = GradeFetcher.get_filename(semester_str, data_dir)
         if not os.path.exists(filename):
             return []
         with open(filename, 'r', encoding='utf-8') as f:
-            lines = f.readlines()[1:]
+            lines = f.readlines()[1:]  # 跳过表头
         grades = []
         for line in lines:
             parts = line.strip().split('\t')
@@ -113,4 +125,5 @@ class GradeFetcher:
                 og = old_map[key]
                 if og['score'] != ng['score'] or og['final'] != ng['final']:
                     modified.append({'old': og, 'new': ng})
+        # 注意：这里不处理删除，因为我们不期望成绩被删除
         return {'added': added, 'modified': modified}

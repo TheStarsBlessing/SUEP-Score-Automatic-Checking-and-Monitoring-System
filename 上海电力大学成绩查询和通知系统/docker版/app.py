@@ -2,7 +2,7 @@ import os
 import json
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, redirect
 
 # ---------- 延迟导入调度器 ----------
@@ -11,6 +11,7 @@ BackgroundScheduler = None
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
+    from apscheduler.triggers.cron import CronTrigger
     SCHEDULER_AVAILABLE = True
 except Exception as e:
     print(f"⚠️ APScheduler 导入失败，定时监控功能不可用: {e}")
@@ -29,15 +30,14 @@ job = None
 is_running = False
 fetcher = None
 ids_session = None
-last_grades = []
+last_grades = []          # 当前学期成绩，用于界面显示
+last_query_time = None    # 最新一次成功查询的时间（字符串）
 config = load_config()
 
-# 用于控制定时任务首次触发日志
 _first_scheduled_run = True
 
 # ---------- 环境变量覆盖配置 ----------
 def apply_env_overrides():
-    """通过环境变量覆盖 config 中的部分设置"""
     global config
     if os.getenv('PROXY_ENABLED', '').lower() == 'true':
         config['proxy_enabled'] = True
@@ -67,6 +67,40 @@ def log_message(msg):
     print(log_line)
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(log_line + '\n')
+
+# ---------- 日志清理功能 ----------
+def clean_old_logs():
+    """删除超过配置天数的日志文件（仅处理 logs 目录下的 .log 文件）"""
+    retention_days = config.get('log_retention_days', 7)
+    cutoff_time = datetime.now() - timedelta(days=retention_days)
+    try:
+        for filename in os.listdir(LOG_DIR):
+            if filename.endswith('.log'):
+                filepath = os.path.join(LOG_DIR, filename)
+                mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                if mtime < cutoff_time:
+                    os.remove(filepath)
+                    log_message(f"已删除过期日志文件: {filename}")
+    except Exception as e:
+        log_message(f"日志清理失败: {e}")
+
+# 启动时清理一次
+clean_old_logs()
+
+# 定时清理（每天凌晨 3 点执行，如果调度器可用）
+def schedule_log_cleanup():
+    global scheduler
+    if SCHEDULER_AVAILABLE and scheduler is None:
+        scheduler = BackgroundScheduler()
+        scheduler.start()
+    if SCHEDULER_AVAILABLE:
+        scheduler.add_job(
+            clean_old_logs,
+            CronTrigger(hour=3, minute=0),
+            id='log_cleanup',
+            replace_existing=True
+        )
+        log_message("已注册日志清理任务（每天 03:00）")
 
 # ---------- 辅助函数 ----------
 def get_proxy_config():
@@ -108,45 +142,6 @@ def get_fetcher():
         return fetcher
     else:
         raise Exception('登录失败，请检查账号密码和网络')
-
-def perform_query():
-    global last_grades, fetcher, ids_session
-    max_retries = config.get('max_retries', 2)
-    retry_interval = config.get('retry_interval', 60)
-    sem_str = config.get('semester_str', '2025-2026.2')
-
-    for attempt in range(max_retries + 1):
-        try:
-            if fetcher is None:
-                get_fetcher()
-            if attempt > 0:
-                log_message(f'重试 {attempt}，刷新登录...')
-                renew_session()
-            sem_id = semester_str_to_id(sem_str)
-            new_grades = fetcher.fetch_grades(sem_id)
-            GradeFetcher.save_to_file(new_grades, filename='data/grade_data.txt')
-            changes = fetcher.detect_changes(last_grades, new_grades)
-            last_grades = new_grades
-            if changes['added'] or changes['modified']:
-                log_message(f'检测到变动: 新增{len(changes["added"])}, 修改{len(changes["modified"])}')
-                if config.get('notification_methods'):
-                    notifier = Notifier(config)
-                    title = "SUEP成绩变动提醒"
-                    content = build_notification_content(changes)
-                    notifier.send(title, content)
-            return True, changes, None
-        except Exception as e:
-            error_msg = str(e)
-            log_message(f'查询失败 (尝试 {attempt+1}/{max_retries+1}): {error_msg}')
-            if attempt < max_retries:
-                time.sleep(retry_interval)
-            else:
-                log_message('达到最大重试次数，终止监控并发送错误通知')
-                if config.get('notification_methods'):
-                    notifier = Notifier(config)
-                    notifier.send_error(f"连续查询失败，监控已终止。最后一次错误：{error_msg}")
-                return False, None, error_msg
-    return False, None, '未知错误'
 
 def renew_session():
     global ids_session, fetcher
@@ -190,17 +185,72 @@ def build_notification_content(changes):
             old, new = m['old'], m['new']
             line = f"{new['name']} ({new['code']})  成绩: {old['score']} → {new['score']}"
             if new.get('gpa'): line += f"  绩点: {old.get('gpa', '')} → {new['gpa']}"
-            # 判断挂科状态变化
             old_fail = is_failing(old['score'])
             new_fail = is_failing(new['score'])
             if old_fail and not new_fail:
                 line += "  🎉恭喜过关！"
             elif old_fail and new_fail:
                 line += "  QAQ"
-            # 其他情况（如原来及格现在及格或变差但还及格）不添加额外提示
             lines.append(line)
         lines.append("")
     return "\n".join(lines).strip()
+
+# ---------- 核心查询函数 ----------
+def perform_query():
+    global last_grades, fetcher, ids_session, last_query_time
+    max_retries = config.get('max_retries', 2)
+    retry_interval = config.get('retry_interval', 60)
+    sem_str = config.get('semester_str', '2025-2026.2')
+
+    # 加载当前学期的旧成绩
+    old_grades = GradeFetcher.load_from_file(sem_str)
+
+    for attempt in range(max_retries + 1):
+        try:
+            if fetcher is None:
+                get_fetcher()
+            if attempt > 0:
+                log_message(f'重试 {attempt}，刷新登录...')
+                renew_session()
+            sem_id = semester_str_to_id(sem_str)
+            new_grades = fetcher.fetch_grades(sem_id)
+
+            # 只有非空结果才保存并检测变化
+            if new_grades:
+                GradeFetcher.save_to_file(new_grades, sem_str)
+                changes = fetcher.detect_changes(old_grades, new_grades)
+                last_grades = new_grades  # 更新全局显示用
+                if changes['added'] or changes['modified']:
+                    log_message(f'检测到变动: 新增{len(changes["added"])}, 修改{len(changes["modified"])}')
+                    if config.get('notification_methods'):
+                        notifier = Notifier(config)
+                        title = "SUEP成绩变动提醒"
+                        content = build_notification_content(changes)
+                        if content:  # 有内容才发送
+                            notifier.send(title, content)
+                else:
+                    log_message('查询完成，无变化')
+                # 更新查询时间
+                last_query_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                return True, changes, None
+            else:
+                # 查询成功但结果为空，不保存，视为无变化
+                log_message('查询结果为空，未更新成绩文件')
+                last_query_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                return True, {'added': [], 'modified': []}, None
+
+        except Exception as e:
+            error_msg = str(e)
+            log_message(f'查询失败 (尝试 {attempt+1}/{max_retries+1}): {error_msg}')
+            if attempt < max_retries:
+                time.sleep(retry_interval)
+            else:
+                log_message('达到最大重试次数，终止监控并发送错误通知')
+                if config.get('notification_methods'):
+                    notifier = Notifier(config)
+                    notifier.send_error(f"连续查询失败，监控已终止。最后一次错误：{error_msg}")
+                return False, None, error_msg
+    return False, None, '未知错误'
 
 # ---------- 定时任务 ----------
 def scheduled_query():
@@ -217,11 +267,13 @@ def scheduled_query():
         stop_monitor()
 
 def start_monitor():
-    global is_running, job, scheduler, _first_scheduled_run
+    global is_running, job, scheduler, _first_scheduled_run, last_grades
     if is_running:
         return
-    global last_grades
-    last_grades = GradeFetcher.load_from_file(filename='data/grade_data.txt')
+    # 加载当前学期的成绩用于显示
+    sem_str = config.get('semester_str', '2025-2026.2')
+    last_grades = GradeFetcher.load_from_file(sem_str)
+
     is_running = True
     interval = config.get('query_interval', 300)
 
@@ -233,6 +285,8 @@ def start_monitor():
     if scheduler is None:
         scheduler = BackgroundScheduler()
         scheduler.start()
+        # 启动日志清理调度（仅一次）
+        schedule_log_cleanup()
 
     if job:
         job.remove()
@@ -255,7 +309,7 @@ def index():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    global last_grades, is_running
+    global last_grades, is_running, last_query_time
     logs = []
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE, 'r', encoding='utf-8') as f:
@@ -266,7 +320,8 @@ def get_status():
         'running': is_running,
         'grade_count': grade_count,
         'logs': logs,
-        'config': config
+        'config': config,
+        'last_query_time': last_query_time  # 新增返回
     })
 
 @app.route('/api/grades', methods=['GET'])
@@ -313,6 +368,7 @@ def config_manage():
         if 'notification_methods' in new_config:
             config['notification_methods'] = new_config['notification_methods']
         save_config(config)
+        # 如果监控正在运行，重启以应用新间隔等
         if is_running:
             stop_monitor()
             start_monitor()
@@ -333,5 +389,14 @@ def get_logs():
             return f.read()
     return '暂无日志'
 
+@app.route('/api/clean_logs', methods=['POST'])
+def clean_logs_api():
+    """手动触发日志清理"""
+    clean_old_logs()
+    return jsonify({'status': 'cleaned'})
+
 if __name__ == '__main__':
+    # 启动时调度日志清理（若尚未调度）
+    if SCHEDULER_AVAILABLE:
+        schedule_log_cleanup()
     app.run(host='0.0.0.0', port=15029, debug=True)

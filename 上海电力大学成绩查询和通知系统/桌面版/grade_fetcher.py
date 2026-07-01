@@ -71,7 +71,19 @@ class GradeFetcher:
         return grades
 
     @staticmethod
-    def save_to_file(grades: list, filename='grade_data.txt'):
+    def _get_filename(semester_str=None):
+        """根据学期字符串生成文件名，若未提供则使用默认"""
+        if semester_str:
+            # 替换不安全的文件名字符
+            safe = semester_str.replace(' ', '_').replace('.', '_')
+            return f'grade_data_{safe}.txt'
+        return 'grade_data.txt'
+
+    @staticmethod
+    def save_to_file(grades: list, semester_str=None, filename=None):
+        """保存成绩到文件，可指定学期或直接指定文件名"""
+        if filename is None:
+            filename = GradeFetcher._get_filename(semester_str)
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('学年学期\t课程代码\t课程序号\t课程名称\t课程类别\t学分\t正考总评成绩\t最终\t绩点\n')
             for g in grades:
@@ -79,7 +91,10 @@ class GradeFetcher:
                 f.write(line)
 
     @staticmethod
-    def load_from_file(filename='grade_data.txt') -> list:
+    def load_from_file(semester_str=None, filename=None):
+        """从文件加载成绩，可指定学期或直接指定文件名"""
+        if filename is None:
+            filename = GradeFetcher._get_filename(semester_str)
         if not os.path.exists(filename):
             return []
         with open(filename, 'r', encoding='utf-8') as f:

@@ -3,6 +3,7 @@ from tkinter import ttk, scrolledtext, messagebox
 import threading
 import time
 import os
+from datetime import datetime
 
 from ids import IdsAuth
 from grade_fetcher import GradeFetcher, semester_str_to_id
@@ -151,7 +152,7 @@ class GradeGUI:
     def __init__(self, root):
         self.root = root
         self.root.title('SUEP 成绩自动查询')
-        self.root.geometry('950x650')
+        self.root.geometry('950x700')
 
         self.config = load_config()
         for key, value in self.config.items():
@@ -164,9 +165,15 @@ class GradeGUI:
         self.timer = None
         self.current_grades = []
         self.last_grades = []
+        self.last_query_time = None   # 记录最新查询时间
 
         self.create_widgets()
-        self.login()
+        # 尝试登录，但无论成功与否都不影响GUI显示
+        try:
+            self.login()
+        except Exception as e:
+            self.log(f'登录过程中发生异常: {e}')
+            self.status_label.config(text='状态: 登录异常', fg='red')
 
     def create_widgets(self):
         control_frame = tk.Frame(self.root)
@@ -187,8 +194,12 @@ class GradeGUI:
         self.settings_btn = tk.Button(control_frame, text='设置', command=self.open_settings)
         self.settings_btn.pack(side=tk.LEFT, padx=10)
 
+        # 状态标签和查询时间标签
         self.status_label = tk.Label(control_frame, text='状态: 未登录', fg='gray')
-        self.status_label.pack(side=tk.LEFT, padx=20)
+        self.status_label.pack(side=tk.LEFT, padx=10)
+
+        self.time_label = tk.Label(control_frame, text='上次查询: 无', fg='gray')
+        self.time_label.pack(side=tk.LEFT, padx=10)
 
         # 成绩表格
         self.tree = ttk.Treeview(self.root, columns=('semester','code','seq','name','category','credit','score','final','gpa'), show='headings')
@@ -208,8 +219,21 @@ class GradeGUI:
             self.tree.column(col_id, width=width, anchor='center')
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        self.log_text = scrolledtext.ScrolledText(self.root, height=8, state='disabled')
-        self.log_text.pack(fill=tk.X, padx=10, pady=5)
+        # 日志区域和清空按钮
+        log_frame = tk.Frame(self.root)
+        log_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, state='disabled')
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        clear_btn = tk.Button(log_frame, text='清空日志', command=self.clear_log)
+        clear_btn.pack(side=tk.RIGHT, padx=5)
+
+    def clear_log(self):
+        """清空日志显示"""
+        self.log_text.config(state='normal')
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state='disabled')
 
     def open_settings(self):
         def update_config(new_config):
@@ -240,7 +264,12 @@ class GradeGUI:
                 self.status_label.config(text='状态: 未设置账号', fg='orange')
                 return
             self.log('需要账号密码登录...')
-            self.ids.login(username, password, 'http://jw.shiep.edu.cn/eams/login.action')
+            try:
+                self.ids.login(username, password, 'http://jw.shiep.edu.cn/eams/login.action')
+            except Exception as e:
+                self.log(f'登录请求异常: {e}')
+                self.status_label.config(text='状态: 登录失败', fg='red')
+                return
         if self.ids.ok:
             with open('cookies.txt', 'w') as f:
                 f.write(';'.join([f'{k}={v}' for k, v in self.ids.cookies.items()]))
@@ -265,6 +294,8 @@ class GradeGUI:
             self.current_grades = grades
             self.update_tree(grades)
             self.log(f'查询成功，共 {len(grades)} 条成绩')
+            self.last_query_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.time_label.config(text=f'上次查询: {self.last_query_time}')
         except Exception as e:
             self.log(f'查询失败: {e}')
 
@@ -280,8 +311,13 @@ class GradeGUI:
         self.query_now_btn.config(state=tk.DISABLED)
         self.settings_btn.config(state=tk.DISABLED)
         self.status_label.config(text='状态: 监控中...', fg='blue')
-        self.last_grades = GradeFetcher.load_from_file()
-        self.log(f'已加载历史成绩 {len(self.last_grades)} 条')
+
+        # 从对应学期的文件加载历史成绩
+        sem_str = self.sem_entry.get().strip()
+        if not sem_str:
+            sem_str = self.config.get('semester_str', '2025-2026.2')
+        self.last_grades = GradeFetcher.load_from_file(semester_str=sem_str)
+        self.log(f'已加载历史成绩 {len(self.last_grades)} 条 (学期: {sem_str})')
         self._schedule_query()
 
     def stop_monitor(self):
@@ -307,6 +343,10 @@ class GradeGUI:
         max_retries = self.config.get('max_retries', 2)
         retry_interval = self.config.get('retry_interval', 60)
         last_error = None
+        sem_str = self.sem_entry.get().strip()
+        if not sem_str:
+            sem_str = self.config.get('semester_str', '2025-2026.2')
+
         for attempt in range(max_retries + 1):
             try:
                 # 每次尝试前检查是否需要重新登录（删除cookie）
@@ -314,27 +354,51 @@ class GradeGUI:
                     self.log(f'第 {attempt} 次重试，清理cookie并重新登录...')
                     self._renew_session()  # 重新登录
 
-                sem_str = self.sem_entry.get().strip()
-                if not sem_str:
-                    sem_str = self.config.get('semester_str', '2025-2026.2')
                 sem_id = semester_str_to_id(sem_str)
                 new_grades = self.fetcher.fetch_grades(sem_id)
                 self.current_grades = new_grades
                 self.update_tree(new_grades)
-                GradeFetcher.save_to_file(new_grades)
-                changes = self.fetcher.detect_changes(self.last_grades, new_grades)
-                if changes['added'] or changes['modified']:
-                    self.log(f'检测到变动: 新增 {len(changes["added"])}, 修改 {len(changes["modified"])}')
-                    # 发送通知
+
+                # 只在结果非空时才保存文件
+                if new_grades:
+                    GradeFetcher.save_to_file(new_grades, semester_str=sem_str)
+                    self.log(f'成绩已保存 (共 {len(new_grades)} 条)')
+                else:
+                    self.log('查询结果为空，不保存文件')
+
+                # 更新查询时间
+                self.last_query_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                self.time_label.config(text=f'上次查询: {self.last_query_time}')
+
+                # 检测变化（仅在 old_grades 存在且新结果非空时比较）
+                if self.last_grades and new_grades:
+                    changes = self.fetcher.detect_changes(self.last_grades, new_grades)
+                    if changes['added'] or changes['modified']:
+                        self.log(f'检测到变动: 新增 {len(changes["added"])}, 修改 {len(changes["modified"])}')
+                        # 发送通知
+                        if self.config.get('notification_methods'):
+                            notifier = Notifier(self.config)
+                            title = "SUEP成绩变动提醒"
+                            content = self._build_notification_content(changes)
+                            if notifier.send(title, content):
+                                self.log('通知发送成功')
+                            else:
+                                self.log('通知发送失败，请检查配置')
+                elif not self.last_grades and new_grades:
+                    # 首次查询到成绩，也视为新增
                     if self.config.get('notification_methods'):
                         notifier = Notifier(self.config)
-                        title = "SUEP成绩变动提醒"
-                        content = self._build_notification_content(changes)
+                        title = "SUEP成绩新提醒"
+                        content = f"首次查询到 {len(new_grades)} 条成绩。"
                         if notifier.send(title, content):
-                            self.log('通知发送成功')
+                            self.log('首次成绩通知发送成功')
                         else:
-                            self.log('通知发送失败，请检查配置')
-                self.last_grades = new_grades
+                            self.log('首次成绩通知发送失败')
+
+                # 更新历史记录为新结果（即使为空，也不覆盖旧记录？但逻辑上，如果查询结果为空，可能只是暂时，我们保留旧记录不更新）
+                # 但是，如果查询结果非空，则更新 last_grades
+                if new_grades:
+                    self.last_grades = new_grades
                 return  # 成功，退出重试循环
 
             except Exception as e:
@@ -358,7 +422,10 @@ class GradeGUI:
         username = self.config.get('username', '')
         password = self.config.get('password', '')
         if username and password:
-            self.ids.login(username, password, 'http://jw.shiep.edu.cn/eams/login.action')
+            try:
+                self.ids.login(username, password, 'http://jw.shiep.edu.cn/eams/login.action')
+            except Exception as e:
+                raise Exception(f'重新登录失败: {e}')
             if self.ids.ok:
                 with open('cookies.txt', 'w') as f:
                     f.write(';'.join([f'{k}={v}' for k, v in self.ids.cookies.items()]))
@@ -446,6 +513,13 @@ class GradeGUI:
     def log(self, msg):
         self.log_text.config(state='normal')
         self.log_text.insert(tk.END, f'[{time.strftime("%H:%M:%S")}] {msg}\n')
+        # 自动限制日志行数，保留最近1000行
+        lines = self.log_text.get(1.0, tk.END).splitlines()
+        if len(lines) > 1000:
+            # 删除前一半
+            keep = lines[-500:]  # 保留最后500行
+            self.log_text.delete(1.0, tk.END)
+            self.log_text.insert(tk.END, '\n'.join(keep) + '\n')
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
 

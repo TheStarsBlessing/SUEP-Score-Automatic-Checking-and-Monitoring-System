@@ -15,7 +15,7 @@
     "sender_password": "",
     "receiver_email": "",
     "serverchan_token": "",
-    "pushplus_token": "",
+    "pushplus_token": "***REMOVED***",
     "wework_webhook": "",
     "telegram_bot_token": "",
     "telegram_chat_id": "",

@@ -23,19 +23,43 @@ is_running = False
 fetcher = None
 ids_session = None
 last_grades = []
+last_query_time = None   # 新增：最近一次成功查询的时间
 config = load_config()
 
-# 日志记录函数（写入文件和控制台）
+# 日志文件路径和大小限制（字节）
+LOG_FILE = 'logs/web.log'
+LOG_MAX_SIZE = 1 * 1024 * 1024  # 1MB
+
 def log_message(msg):
+    """记录日志，并自动轮转"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_line = f'[{timestamp}] {msg}'
     print(log_line)
-    # 写入 logs/web.log
     os.makedirs('logs', exist_ok=True)
-    with open('logs/web.log', 'a', encoding='utf-8') as f:
+    
+    # 检查并轮转日志文件
+    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > LOG_MAX_SIZE:
+        try:
+            # 重命名为 .old（覆盖旧的）
+            old_file = LOG_FILE + '.old'
+            if os.path.exists(old_file):
+                os.remove(old_file)
+            os.rename(LOG_FILE, old_file)
+        except Exception as e:
+            print(f'日志轮转失败: {e}')
+    
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(log_line + '\n')
 
 # ---------- 辅助函数 ----------
+def get_grade_filename(semester_str=None):
+    """根据学期字符串生成成绩文件名"""
+    if semester_str is None:
+        semester_str = config.get('semester_str', '2025-2026.2')
+    # 替换可能引起问题的字符，保留点号
+    safe_str = semester_str.replace('/', '_')
+    return f'grade_data_{safe_str}.txt'
+
 def get_fetcher():
     global ids_session, fetcher
     if fetcher is None:
@@ -64,27 +88,36 @@ def get_fetcher():
 
 def perform_query():
     """执行一次成绩查询，返回 (成功与否, 变动信息, 错误信息)"""
-    global last_grades, fetcher, ids_session
+    global last_grades, fetcher, ids_session, last_query_time
     max_retries = config.get('max_retries', 2)
     retry_interval = config.get('retry_interval', 60)
     sem_str = config.get('semester_str', '2025-2026.2')
 
     for attempt in range(max_retries + 1):
         try:
-            # 重试时刷新认证
             if attempt > 0:
                 log_message(f'重试 {attempt}，刷新登录...')
                 renew_session()
             sem_id = semester_str_to_id(sem_str)
             new_grades = fetcher.fetch_grades(sem_id)
-            # 保存最新数据
-            GradeFetcher.save_to_file(new_grades)
+            
+            # 查询成功，判断数据是否为空
+            if not new_grades:
+                log_message('查询成功，但未获取到任何成绩数据（可能本学期无成绩）')
+                # 不保存文件，不更新 last_grades，不改变 last_query_time
+                return True, None, None  # success True, no changes, no error
+            
+            # 有数据，保存到按学期区分的文件
+            grade_file = get_grade_filename(sem_str)
+            GradeFetcher.save_to_file(new_grades, grade_file)
+            
             # 检测变动
             changes = fetcher.detect_changes(last_grades, new_grades)
             last_grades = new_grades
+            last_query_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_message(f'查询成功，获取 {len(new_grades)} 条成绩')
             if changes['added'] or changes['modified']:
                 log_message(f'检测到变动: 新增{len(changes["added"])}, 修改{len(changes["modified"])}')
-                # 发送通知
                 if config.get('notification_methods'):
                     notifier = Notifier(config)
                     title = "SUEP成绩变动提醒"
@@ -97,7 +130,6 @@ def perform_query():
             if attempt < max_retries:
                 time.sleep(retry_interval)
             else:
-                # 所有重试失败
                 log_message('达到最大重试次数，终止监控并发送错误通知')
                 if config.get('notification_methods'):
                     notifier = Notifier(config)
@@ -169,8 +201,10 @@ def start_monitor():
     global is_running, job, last_grades
     if is_running:
         return
-    # 加载历史成绩作为基准
-    last_grades = GradeFetcher.load_from_file()
+    # 加载对应学期的历史成绩作为基准
+    grade_file = get_grade_filename()
+    last_grades = GradeFetcher.load_from_file(grade_file)
+    log_message(f'加载历史成绩文件: {grade_file}，共 {len(last_grades)} 条')
     is_running = True
     interval = config.get('query_interval', 300)
     if job:
@@ -193,8 +227,8 @@ def index():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    """返回当前状态：是否运行、上次查询结果、日志最后20行等"""
-    global last_grades, is_running
+    """返回当前状态：是否运行、上次查询时间、成绩数、日志最后20行等"""
+    global last_grades, is_running, last_query_time
     # 读取日志最后20行
     log_path = 'logs/web.log'
     logs = []
@@ -202,11 +236,10 @@ def get_status():
         with open(log_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             logs = lines[-20:] if len(lines) > 20 else lines
-    # 获取成绩总数
-    grade_count = len(last_grades)
     return jsonify({
         'running': is_running,
-        'grade_count': grade_count,
+        'grade_count': len(last_grades),
+        'last_query_time': last_query_time,   # 新增
         'logs': logs,
         'config': config
     })
@@ -242,15 +275,12 @@ def config_manage():
     global config
     if request.method == 'POST':
         new_config = request.get_json()
-        # 合并更新
         for key in new_config:
             if key in config or key in config_manager.DEFAULT_CONFIG:
                 config[key] = new_config[key]
-        # 特殊处理 notification_methods (列表)
         if 'notification_methods' in new_config:
             config['notification_methods'] = new_config['notification_methods']
         save_config(config)
-        # 如果监控正在运行，需要重启以应用新间隔
         if is_running:
             stop_monitor()
             start_monitor()
@@ -260,7 +290,6 @@ def config_manage():
 
 @app.route('/api/test_notification', methods=['POST'])
 def test_notification():
-    """发送测试通知"""
     notifier = Notifier(config)
     success = notifier.send_test()
     return jsonify({'success': success})
@@ -274,7 +303,17 @@ def get_logs():
             return f.read()
     return '暂无日志'
 
+@app.route('/api/clear_logs', methods=['POST'])
+def clear_logs():
+    """手动清空日志文件"""
+    log_path = 'logs/web.log'
+    if os.path.exists(log_path):
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.truncate(0)
+        log_message('日志已手动清空')
+        return jsonify({'status': 'cleared'})
+    return jsonify({'status': 'no_log'})
+
 if __name__ == '__main__':
-    # 启动时尝试登录
     get_fetcher()
     app.run(host='0.0.0.0', port=15029, debug=True)
