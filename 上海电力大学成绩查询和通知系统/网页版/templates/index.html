@@ -16,6 +16,8 @@
         .table-wrapper { max-height: 500px; overflow-y: auto; }
         .table th { position: sticky; top: 0; background: #fff; z-index: 10; border-bottom: 2px solid #dee2e6; }
         .table td, .table th { white-space: nowrap; }
+        .info-line { display: flex; gap: 20px; flex-wrap: wrap; }
+        .info-item { font-size: 0.95rem; }
     </style>
 </head>
 <body>
@@ -25,16 +27,16 @@
         <!-- 状态栏 -->
         <div class="card">
             <div class="card-body d-flex justify-content-between align-items-center flex-wrap">
-                <div>
+                <div class="info-line">
                     <span class="badge bg-secondary status-badge" id="status-badge">未启动</span>
-                    <span id="grade-count" class="ms-3">成绩数: 0</span>
-                    <span id="last-query-time" class="ms-3 text-muted">上次查询: 无</span>
+                    <span id="grade-count" class="info-item">成绩数: 0</span>
+                    <span id="last-query-time" class="info-item">最新查询: 暂无</span>
                 </div>
-                <div class="mt-2 mt-sm-0">
+                <div>
                     <button class="btn btn-success me-2" id="btn-start">▶ 开始监控</button>
                     <button class="btn btn-danger me-2" id="btn-stop" disabled>⏹ 停止</button>
                     <button class="btn btn-primary me-2" id="btn-query">🔍 立即查询</button>
-                    <button class="btn btn-info me-2" id="btn-test-notify">📨 测试通知</button>
+                    <button class="btn btn-info" id="btn-test-notify">📨 测试通知</button>
                     <button class="btn btn-warning" id="btn-clear-logs">🗑️ 清空日志</button>
                 </div>
             </div>
@@ -57,7 +59,10 @@
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">学年学期</label>
-                            <input type="text" class="form-control" id="semester_str" value="{{ config.semester_str }}" placeholder="如 2025-2026.2">
+                            <select class="form-select" id="semester_str">
+                                <option value="{{ config.semester_str }}">{{ config.semester_str }}</option>
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="btn-load-semesters">🔄 从教务系统获取学期列表</button>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">查询间隔 (秒)</label>
@@ -84,6 +89,50 @@
                                 <label><input type="checkbox" value="telegram" {% if 'telegram' in config.notification_methods %}checked{% endif %}> Telegram</label>
                                 <label><input type="checkbox" value="bark" {% if 'bark' in config.notification_methods %}checked{% endif %}> Bark</label>
                             </div>
+                        </div>
+                    </div>
+                    <!-- 安全 / 网络 -->
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Web 访问口令</label>
+                            <input type="password" class="form-control" id="web_password" value="{{ config.web_password }}" placeholder="留空=不鉴权（不推荐）">
+                            <div class="form-text">设置后浏览器会弹出登录框</div>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">连接超时(秒)</label>
+                            <input type="number" class="form-control" id="connect_timeout" value="{{ config.connect_timeout }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">读取超时(秒)</label>
+                            <input type="number" class="form-control" id="read_timeout" value="{{ config.read_timeout }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">日志保留(天)</label>
+                            <input type="number" class="form-control" id="log_retention_days" value="{{ config.log_retention_days }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">CA 证书路径(可选)</label>
+                            <input type="text" class="form-control" id="ca_bundle" value="{{ config.ca_bundle }}" placeholder="填了才校验 TLS">
+                            <div class="form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="ssl_verify" {% if config.ssl_verify %}checked{% endif %}>
+                                <label class="form-check-label" for="ssl_verify">强制校验 TLS 证书</label>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 代理设置 -->
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="proxy_enabled" {% if config.proxy_enabled %}checked{% endif %}>
+                                <label class="form-check-label" for="proxy_enabled">启用代理（EasyConnect）</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">代理地址</label>
+                            <input type="text" class="form-control" id="proxy_url" value="{{ config.proxy_url }}" placeholder="socks5://127.0.0.1:1080">
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <button type="button" class="btn btn-primary" id="btn-save-config">💾 保存设置</button>
                         </div>
                     </div>
                     <!-- 邮件配置 -->
@@ -138,7 +187,7 @@
                             <input type="text" class="form-control" id="bark_key" value="{{ config.bark_key }}">
                         </div>
                         <div class="col-md-3 d-flex align-items-end">
-                            <button type="button" class="btn btn-primary" id="btn-save-config">💾 保存设置</button>
+                            <!-- 按钮已放在上方，此处留空或可再放一个保存按钮，但已有保存按钮在代理行 -->
                         </div>
                     </div>
                 </form>
@@ -175,7 +224,7 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // ---------- 核心函数 ----------
-        function updateStatus(running) {
+        function updateStatus(running, lastTime) {
             if (running) {
                 $('#status-badge').removeClass('bg-secondary').addClass('bg-success').text('监控中');
                 $('#btn-start').prop('disabled', true);
@@ -184,6 +233,11 @@
                 $('#status-badge').removeClass('bg-success').addClass('bg-secondary').text('已停止');
                 $('#btn-start').prop('disabled', false);
                 $('#btn-stop').prop('disabled', true);
+            }
+            if (lastTime) {
+                $('#last-query-time').text('最新查询: ' + lastTime);
+            } else {
+                $('#last-query-time').text('最新查询: 暂无');
             }
         }
 
@@ -220,12 +274,13 @@
         }
 
         function refreshStatus() {
+            // 获取状态（运行、日志、成绩总数、最新查询时间）
             $.get('/api/status', function(data) {
-                updateStatus(data.running);
+                updateStatus(data.running, data.last_query_time);
                 $('#grade-count').text(`成绩数: ${data.grade_count}`);
-                $('#last-query-time').text(`上次查询: ${data.last_query_time || '无'}`);
                 renderLogs(data.logs);
             });
+            // 单独获取成绩列表（保证完整）
             $.get('/api/grades', function(grades) {
                 renderGrades(grades);
             });
@@ -250,10 +305,55 @@
                 $('#telegram_bot_token').val(data.telegram_bot_token);
                 $('#telegram_chat_id').val(data.telegram_chat_id);
                 $('#bark_key').val(data.bark_key);
+                // 代理
+                $('#proxy_enabled').prop('checked', data.proxy_enabled || false);
+                $('#proxy_url').val(data.proxy_url || 'socks5://127.0.0.1:1080');
+                // 安全 / 网络
+                $('#web_password').val(data.web_password || '');
+                $('#connect_timeout').val(data.connect_timeout);
+                $('#read_timeout').val(data.read_timeout);
+                $('#log_retention_days').val(data.log_retention_days);
+                $('#ca_bundle').val(data.ca_bundle || '');
+                $('#ssl_verify').prop('checked', data.ssl_verify || false);
+                // 通知方式
                 let methods = data.notification_methods || [];
                 $('#notification-methods input[type="checkbox"]').each(function() {
                     $(this).prop('checked', methods.includes($(this).val()));
                 });
+            });
+        }
+
+        // 从教务系统拉取可选学期，填进下拉框（force=true 时才弹错误提示）
+        function loadSemesters(force) {
+            $('#btn-load-semesters').prop('disabled', true).text('⏳ 读取中...');
+            $.get('/api/semesters' + (force ? '?refresh=1' : ''), function(data) {
+                $('#btn-load-semesters').prop('disabled', false)
+                    .text('🔄 从教务系统获取学期列表');
+                if (!data.success) {
+                    if (force) {
+                        alert('获取学期列表失败：' + (data.error || '未知错误') +
+                              '\n（可继续使用当前配置的学年学期，如 2025-2026.2）');
+                    }
+                    return;
+                }
+                let current = $('#semester_str').val() || data.current;
+                let html = '';
+                let found = false;
+                // 倒序：最近的学期排在最前
+                data.semesters.slice().reverse().forEach(function(s) {
+                    if (s.semester === current) { found = true; }
+                    html += '<option value="' + s.semester + '">' +
+                            s.label + '（' + s.semester + '）</option>';
+                });
+                if (current && !found) {
+                    html = '<option value="' + current + '">' + current +
+                           '（当前配置，不在列表中）</option>' + html;
+                }
+                $('#semester_str').html(html).val(current);
+            }).fail(function() {
+                $('#btn-load-semesters').prop('disabled', false)
+                    .text('🔄 从教务系统获取学期列表');
+                if (force) { alert('获取学期列表请求失败'); }
             });
         }
 
@@ -291,19 +391,6 @@
             });
         });
 
-        $('#btn-clear-logs').click(function() {
-            if (confirm('确定要清空日志文件吗？')) {
-                $.post('/api/clear_logs', function(data) {
-                    if (data.status === 'cleared') {
-                        alert('日志已清空');
-                        refreshStatus();
-                    } else {
-                        alert('操作失败或日志文件不存在');
-                    }
-                });
-            }
-        });
-
         $('#btn-save-config').click(function() {
             let config = {
                 username: $('#username').val(),
@@ -323,6 +410,8 @@
                 telegram_bot_token: $('#telegram_bot_token').val(),
                 telegram_chat_id: $('#telegram_chat_id').val(),
                 bark_key: $('#bark_key').val(),
+                proxy_enabled: $('#proxy_enabled').is(':checked'),
+                proxy_url: $('#proxy_url').val(),
                 notification_methods: $('#notification-methods input:checkbox:checked').map(function() {
                     return $(this).val();
                 }).get()
@@ -343,8 +432,13 @@
         });
 
         // 初始加载与定时刷新（每5秒）
+        $('#btn-load-semesters').click(function() {
+            loadSemesters(true);
+        });
+
         $(document).ready(function() {
             loadConfig();
+            loadSemesters(false);
             refreshStatus();
             setInterval(refreshStatus, 5000);
         });

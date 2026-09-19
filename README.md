@@ -1,292 +1,304 @@
 # SUEP 成绩自动查询与监控系统
 
-本项目是一个用于 **上海电力大学（SUEP）** 学生的成绩自动查询与变动监控工具，支持 **桌面 GUI** 和 **Web 管理界面** 两种运行模式。  
+本项目是一个用于 **上海电力大学（SUEP）** 学生的成绩自动查询与变动监控工具，支持 **桌面 GUI**、**Web 管理界面** 和 **Docker 长期服务** 三种运行方式。
+
 它能够定时抓取教务系统的成绩数据，检测新增或修改的课程，并通过多种方式（邮件、Pushplus、Server酱、企业微信、Telegram、Bark、桌面弹窗等）向用户发送通知，让你第一时间掌握成绩动态。
 
-> **⚠️ 重要提示**  
+> **⚠️ 重要提示**
 > 本工具仅供个人学习与参考，**请勿用于任何商业或非法用途**。使用前请确保你已阅读并遵守上海电力大学的相关网络与信息系统使用规定。
+
+> **🔐 安全提示（务必先读）**
+> 1. `config.json` 里要填你的**统一身份认证账号密码**，属于机密。本仓库只保留**空模板**，
+>    本地运行后它会被写成真实值，**提交前请确认机密字段是空的**（`.gitignore` 已忽略
+>    cookie / 成绩 / 日志，但按项目约定 `config.json` 仍受版本控制）。
+> 2. Web 界面默认**没有任何鉴权**，任何能访问该端口的人都能读到你的学号、密码和推送 Token。
+>    请在设置里填写 **Web 访问口令**，或让 `web_host` 只监听 `127.0.0.1`，并配合反向代理 + HTTPS。
+> 3. 历史版本曾把真实账号密码、CAS 会话票据和完整成绩单提交进本仓库，历史已被重写清理。
+>    **如果你的密码曾经出现在这里，请立即去教务系统修改密码，并重置各推送服务的 Token。**
 
 ---
 
 ## ✨ 功能特点
 
-- 🔐 **自动登录**：通过学校统一身份认证（IDS）自动登录，支持 Cookie 缓存。
+- 🔐 **自动登录**：通过学校统一身份认证（CAS）自动登录，支持 Cookie 缓存与失效自动重登。
 - 📊 **成绩抓取**：解析教务系统成绩页面，结构化提取课程信息（学分、成绩、绩点等）。
-- 🔄 **变动检测**：对比历史成绩，自动识别 **新增课程** 和 **成绩修改**。
-- 📨 **多渠道通知**：支持 **邮件、Pushplus、Server酱、企业微信、Telegram、Bark、桌面弹窗** 等多种通知方式，可同时启用多个。
-- 🖥️ **桌面 GUI**：基于 Tkinter 的图形界面，适合个人电脑直接操作。
-- 🌐 **Web 管理界面**：基于 Flask 的网页控制台，支持远程访问、查看日志、手动查询、配置修改。
-- ⏱️ **定时监控**：可自定义查询间隔，后台自动运行，异常时自动重试并发送错误提醒。
-- 📁 **历史数据持久化**：成绩数据保存在 `grade_data.txt`，配置保存在 `config.json`。
-- 🐳 **Docker 一键部署**：支持 Docker Compose 快速运行，便于长期稳定监控，与 EasyConnect 容器无缝配合。
+- 🗓️ **学期列表联网获取**：从教务系统爬取全部可选学年学期（含真实 `semesterId`），
+  在界面里以**下拉列表**选择，不再依赖写死的换算公式。
+- 🔄 **变动检测**：对比历史成绩，自动识别 **新增课程**、**成绩修改**，并按
+  「课程代码 + 课程序号 + 学期」区分重修等重复课程。
+- 📨 **多渠道通知**：邮件、Pushplus、Server酱、企业微信、Telegram、Bark、桌面弹窗，可同时启用。
+- 🖥️ **桌面 GUI**：Tkinter 图形界面；网络请求全部在后台线程，界面不会卡死；
+  设置窗口支持滚动条与自由缩放。
+- 🌐 **Web 管理界面**：Flask 网页控制台，支持远程访问、查看日志、手动查询、配置修改、可选的访问口令。
+- ⏱️ **定时监控**：自定义查询间隔，后台自动运行，异常时重试并发送错误提醒。
+- 🐳 **Docker 一键部署**：支持 Docker Compose，与 EasyConnect 容器配合实现校外访问。
 
 ---
 
 ## 🖥️ 界面参考
 
- - 桌面版
+- 桌面版
 <img width="1667" height="1194" alt="2026-07-01_011842" src="https://github.com/user-attachments/assets/270b9fe2-4c32-4b7c-b83f-3d6cd0935b02" />
 
- - 网页版
+- 网页版
 <img width="3000" height="4361" alt="Screenshot_20260630_194221_com_trim_app_MainActivity" src="https://github.com/user-attachments/assets/d4c4a941-e75d-4a01-ab64-e1081278e362" />
 
+---
+
+## 📁 目录结构
+
+三个版本各自独立、可以单独拷走部署；`ids.py` / `grade_fetcher.py` / `notifier.py` /
+`config_manager.py` 在三个目录里是**同一份代码**（只有 `config_manager.py` 顶部的
+`_SUBDIR` 一行不同：docker 版是 `"data"`，另两版是 `""`），改一处请三处同步。
+
+```
+.
+├── README.md
+├── LICENSE
+├── Attention                        # 首次使用注意事项
+├── .gitignore
+└── 上海电力大学成绩查询和通知系统/
+    ├── 桌面版/                       # Tkinter 桌面程序（数据就在本目录）
+    │   ├── grade_gui.py             #   入口：python grade_gui.py
+    │   ├── ids.py                   #   CAS 认证
+    │   ├── grade_fetcher.py         #   抓取 / 解析 / 落盘 / 变动检测 / 学期列表
+    │   ├── notifier.py              #   多渠道通知
+    │   ├── config_manager.py        #   配置与路径（_SUBDIR = ""）
+    │   ├── config.json              #   配置模板（机密字段为空）
+    │   ├── requirements.txt
+    │   └── start.bat
+    ├── 网页版/                       # Flask 网页版（数据就在本目录）
+    │   ├── app.py                   #   入口：python app.py，默认 0.0.0.0:15029
+    │   ├── templates/index.html
+    │   ├── config.json
+    │   ├── requirements.txt
+    │   └── start.bat
+    └── docker版/                     # 容器长期服务（数据在 data/）
+        ├── app.py                   #   与网页版同一份代码
+        ├── config_manager.py        #   _SUBDIR = "data"
+        ├── data/config.json         #   实际读取的配置（模板，机密字段为空）
+        ├── config.json              #   仅作参考的模板（程序不读它）
+        ├── Dockerfile
+        ├── docker-compose.yml
+        ├── docker-compose-easyconnect.yml
+        ├── templates/index.html
+        └── requirements.txt
+```
+
+---
 
 ## 🚀 快速开始
 
 ### 1. 环境要求
 
-- Python 3.8 或更高版本（传统运行方式）
-- 网络环境可访问上海电力大学教务系统（通常需校内网络或 VPN）
-- （可选）Docker 和 Docker Compose（推荐用于服务化部署）
+- Python 3.8 或更高版本
+- 网络可访问上海电力大学教务系统（`ids.shiep.edu.cn`、`jw.shiep.edu.cn`，校外需 VPN）
+- （可选）Docker 与 Docker Compose
 
 ### 2. 克隆项目
 
 ```bash
-git clone https://github.com/your-username/SUEP-grade-monitor.git
-cd SUEP-grade-monitor
+git clone https://github.com/TheStarsBlessing/SUEP-Score-Automatic-Checking-and-Monitoring-System.git
+cd SUEP-Score-Automatic-Checking-and-Monitoring-System/上海电力大学成绩查询和通知系统
 ```
 
-### 3. 安装依赖（传统方式）
+### 3. 安装依赖
 
-**桌面版（GUI）**：
+每个版本都有自己的 `requirements.txt`（内容基本一致）：
 
 ```bash
-pip install -r requirements.txt
+cd 桌面版   && pip install -r requirements.txt    # 桌面弹窗另需 win10toast
+cd 网页版   && pip install -r requirements.txt
+cd docker版 && pip install -r requirements.txt
 ```
 
-**Web 版**（若同时使用两个版本，可合并安装）：
-
-```bash
-pip install -r requirements-web.txt   # 或直接 pip install Flask APScheduler requests lxml
-```
-
-> **注意**：桌面版依赖 `win10toast` 用于桌面弹窗（仅 Windows）。若你不需要桌面通知，可忽略该依赖。
+> `pysocks` 是使用 SOCKS5 代理（EasyConnect）时的必需依赖。
 
 ### 4. 配置
 
-首次运行会自动生成 `config.json`，你需要**填写自己的学号和密码**以及其他通知渠道的凭证。
+首次运行会自动生成 `config.json`（统一用 UTF-8 写入）。最少只需要填两项：
 
 | 配置项 | 说明 |
 |--------|------|
 | `username` | 学号 |
 | `password` | 统一身份认证密码 |
-| `semester_str` | 要查询的学期，格式如 `"2025-2026.2"`（学年-学年.学期，1或2） |
-| `query_interval` | 定时查询间隔（秒），默认 300 |
-| `retry_interval` | 查询失败后的重试间隔（秒），默认 60 |
-| `max_retries` | 最大重试次数，默认 2 |
-| `notification_methods` | 启用的通知方式列表，如 `["email", "pushplus"]` |
-| 各通知方式的专用配置 | 如 `smtp_server`, `pushplus_token` 等，按需填写 |
 
-> 你可以在桌面 GUI 的“设置”界面或 Web 界面的设置表单中修改这些配置。
+其余保持默认即可，也可以之后在桌面「设置」或网页「设置」里改。
 
 ### 5. 运行
 
-#### 桌面 GUI 版
-
 ```bash
-python grade_gui.py
+# 桌面版
+python 桌面版/grade_gui.py
+
+# 网页版（默认 0.0.0.0:15029）
+python 网页版/app.py
+
+# Docker
+cd docker版 && docker-compose up -d        # 再访问 http://localhost:15029
 ```
-
-或双击 `start.bat`（Windows）。
-
-#### Web 版（传统方式）
-
-```bash
-python app.py
-```
-
-默认监听 `0.0.0.0:15029`，打开浏览器访问 `http://127.0.0.1:15029` 即可使用。
-
-#### <!-- NEW --> Docker Compose（推荐用于长期服务）
-
-如果你希望将监控程序作为后台服务运行，并自动处理网络代理（如 EasyConnect），可以使用 Docker Compose。
-
-```bash
-# 启动监控服务（需先配置好代理，详见下文“Docker部署”）
-docker-compose up -d
-```
-
-访问 `http://localhost:15029` 进行配置和监控。
 
 ---
 
-## 📖 使用说明
+## ⚙️ 配置项说明
 
-### 桌面 GUI
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `username` / `password` | `""` | 学号 / 统一身份认证密码 |
+| `semester_str` | `2025-2026.2` | 要监控的学期，格式 `学年-学年.学期`。建议用界面里的**学期下拉框**从教务系统选择 |
+| `query_interval` | `300` | 定时查询间隔（秒），最小 30 |
+| `retry_interval` | `60` | 单次查询失败后的重试间隔（秒） |
+| `max_retries` | `2` | 失败重试次数；会话过期时会额外多给一次重登机会 |
+| `connect_timeout` | `8` | TCP 连接超时（秒） |
+| `read_timeout` | `20` | 读取超时（秒） |
+| `ssl_verify` | `false` | 是否校验 TLS 证书。学校证书链通常不在系统信任库里，默认关闭 |
+| `ca_bundle` | `""` | 指定 CA 文件/目录后**自动开启**证书校验（比 `ssl_verify` 优先） |
+| `proxy_enabled` / `proxy_url` | `false` / `""` | 是否使用代理，如 `socks5://127.0.0.1:1080`（校外/docker 常用） |
+| `web_host` / `web_port` | `0.0.0.0` / `15029` | 网页版与 docker 版的监听地址/端口 |
+| `web_password` | `""` | Web 访问口令（HTTP Basic）。**留空 = 完全不鉴权**，强烈建议设置 |
+| `log_retention_days` | `7` | 日志保留天数，超期自动清理（每天 03:00） |
+| `notification_methods` | `[]` | 启用的通知方式列表，如 `["pushplus", "email"]` |
+| 各通知方式专用配置 | | 见下表 |
 
-- 启动后程序会自动尝试登录（使用 Cookie 缓存或账号密码）。
-- 主界面显示当前学期成绩表格，右侧有日志输出。
-- **开始监控**：启动定时查询，检测到变动后自动发送通知。
-- **立即查询**：手动执行一次成绩抓取。
-- **设置**：可修改账号、学期、通知方式等所有配置。
+### 环境变量覆盖（网页版 / docker 版）
 
-### Web 管理界面
+| 环境变量 | 对应配置项 |
+|----------|------------|
+| `PROXY_ENABLED` / `PROXY_URL` | `proxy_enabled` / `proxy_url` |
+| `QUERY_INTERVAL` / `RETRY_INTERVAL` / `MAX_RETRIES` | 同名配置项 |
+| `SEMESTER_STR` | `semester_str` |
+| `WEB_HOST` / `WEB_PORT` / `WEB_PASSWORD` | 同名配置项 |
+| `LOG_RETENTION_DAYS` | `log_retention_days` |
 
-- 顶部状态栏显示当前监控状态、成绩总数。
-- **开始监控 / 停止**：控制后台定时任务。
-- **立即查询**：手动触发一次查询。
-- **测试通知**：发送测试消息验证通知配置。
-- **设置区域**：可修改所有配置项，点击“保存设置”即刻生效（监控间隔等需重启监控）。
-- 成绩表格和日志实时刷新（每 5 秒）。
-
----
-
-## <!-- NEW --> 🐳 Docker 部署详解
-
-### 前提条件
-
-- 安装 [Docker](https://docs.docker.com/get-docker/) 和 [Docker Compose](https://docs.docker.com/compose/install/)（V2 或 V3 均可）。
-- 确保宿主机网络能访问教务系统（若在校外，需使用 VPN 代理，如 EasyConnect）。
-
-### 文件说明
-
-项目中提供了两个 Compose 文件：
-
-- `docker-compose.yml`：定义 `grade-monitor` 服务，构建应用镜像并运行。
-- `docker-compose-easyconnect.yml`：定义 `easyconnect` 服务（基于 [hagb/docker-easyconnect](https://hub.docker.com/r/hagb/docker-easyconnect)），提供 SOCKS5 代理（端口 `1080`），方便校外访问。
-
-你可以根据需要单独使用 `grade-monitor`（若已在校内网或已有代理），或两个一起使用。
-
-### 快速启动（含 EasyConnect 代理）
-
-1. **启动 EasyConnect 容器**（若你需要 VPN 代理）：
-   ```bash
-   docker-compose -f docker-compose-easyconnect.yml up -d
-   ```
-   该容器会暴露 SOCKS5 代理于 `1080` 端口，并可通过 VNC（端口 `5910`）进行登录操作。  
-   首次启动后，需要访问 `http://宿主机IP:5910` 通过 noVNC 登录你的 VPN 账号（密码可在环境变量中预设，详见镜像文档）。
-
-2. **启动 grade-monitor 容器**：
-   ```bash
-   docker-compose up -d
-   ```
-
-   此时，`grade-monitor` 会通过环境变量 `PROXY_URL=socks5://host.docker.internal:1080` 自动使用 EasyConnect 代理。  
-   如果 EasyConnect 运行在另一台机器或容器名称不同，可修改 `PROXY_URL` 指向正确的地址。
-
-3. **访问 Web 界面**：`http://localhost:15029`，首次进入后请配置学号、密码和通知方式。
-
-### 配置与环境变量
-
-`grade-monitor` 容器支持通过环境变量覆盖 `config.json` 中的部分配置，方便无交互部署：
-
-| 环境变量 | 对应配置项 | 说明 |
-|----------|------------|------|
-| `PROXY_ENABLED` | `proxy_enabled` | `true` 或 `false`，是否启用代理 |
-| `PROXY_URL` | `proxy_url` | 代理地址，如 `socks5://host.docker.internal:1080` |
-| `QUERY_INTERVAL` | `query_interval` | 查询间隔（秒） |
-| `SEMESTER_STR` | `semester_str` | 学期字符串，如 `"2025-2026.2"` |
-
-你还可以挂载外部配置文件或通过 Web 界面修改，优先级为：**环境变量 > Web 界面保存 > 默认值**。
-
-### 数据持久化
-
-Compose 中通过 volumes 挂载了以下目录：
-
-- `./data:/app/data`：存放 `config.json`、`grade_data.txt`、`cookies.txt` 等持久化数据。
-- `./logs:/app/logs`：存放 `web.log` 日志文件。
-
-这些目录在宿主机上可见，即使容器重建也不会丢失数据。
-
-### 构建镜像
-
-如果你需要自定义 Dockerfile，可参考以下示例（项目根目录已提供 `Dockerfile`）：
-
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-COPY requirements-web.txt .
-RUN pip install --no-cache-dir -r requirements-web.txt
-
-COPY . .
-
-EXPOSE 15029
-CMD ["python", "app.py"]
-```
-
-若未提供 `requirements-web.txt`，可直接使用 `requirements.txt`（但需确保包含 `Flask` 和 `APScheduler`）。
-
-### 与 EasyConnect 容器网络互通
-
-`docker-compose.yml` 中已添加 `extra_hosts` 配置，使容器能通过 `host.docker.internal` 访问宿主机。若 EasyConnect 容器与 grade-monitor 在同一宿主机，且代理端口映射到宿主机 `1080`，则 `PROXY_URL=socks5://host.docker.internal:1080` 即可生效。
-
-如果 EasyConnect 是单独的 Compose 项目，建议将其网络设置为与 grade-monitor 共享网络（如使用 `network_mode: "service:easyconnect"`），或使用容器名称作为主机名（需自定义网络）。
-
-### 停止和清理
-
-```bash
-docker-compose down          # 停止并移除容器
-docker-compose down -v       # 同时移除数据卷（慎用）
-```
+优先级：**环境变量 > 界面保存的值 > 默认值**。环境变量只作用于本次运行，不会写回 `config.json`。
 
 ---
 
 ## 📨 通知方式详解
 
-在 `notification_methods` 列表中填入对应的标识符即可启用，各方式所需配置字段如下：
+在 `notification_methods` 列表里填入标识符即可启用（可多选，任一失败不影响其它）：
 
 | 方式 | 标识符 | 所需配置字段 |
 |------|--------|--------------|
 | 邮件 | `email` | `smtp_server`, `smtp_port`, `sender_email`, `sender_password`, `receiver_email` |
 | Server酱 | `serverchan` | `serverchan_token`（SendKey） |
 | Pushplus | `pushplus` | `pushplus_token` |
-| 企业微信机器人 | `wework` | `wework_webhook`（群机器人 Webhook 地址） |
-| 桌面弹窗（Windows） | `desktop` | 无需额外配置，需安装 `win10toast` |
+| 企业微信机器人 | `wework` | `wework_webhook` |
+| 桌面弹窗 | `desktop` | 无需额外配置，需 `win10toast`（服务器上建议不要启用） |
 | Telegram | `telegram` | `telegram_bot_token`, `telegram_chat_id` |
-| Bark（iOS） | `bark` | `bark_key`（Bark 推送 Key） |
+| Bark（iOS） | `bark` | `bark_key`（可选 `bark_server` 自建服务地址） |
 
-> 你可以同时启用多个方式，程序会依次尝试发送，任一失败不影响其他方式。
-
----
-
-## 📁 文件结构说明
-
-```
-.
-├── grade_gui.py          # 桌面 GUI 主程序
-├── app.py                # Web 版主程序
-├── ids.py                # 统一身份认证模块
-├── grade_fetcher.py      # 成绩抓取与变动检测
-├── notifier.py           # 通知发送模块
-├── config_manager.py     # 配置加载与保存
-├── envconfig.py          # 配置导入（供其他模块使用）
-├── config.json           # 配置文件（自动生成）
-├── grade_data.txt        # 成绩数据文件（历史记录）
-├── cookies.txt           # Cookie 缓存（自动生成）
-├── requirements.txt      # 桌面版依赖
-├── requirements-web.txt  # Web 版依赖（需自行创建，内容参考“安装依赖”）
-├── start.bat             # Windows 启动脚本（桌面版）
-├── Dockerfile            # Docker 镜像构建文件（建议添加）
-├── docker-compose.yml    # grade-monitor 服务编排
-├── docker-compose-easyconnect.yml # EasyConnect 服务编排（可选）
-├── templates/
-│   └── index.html        # Web 版前端页面
-└── logs/
-    └── web.log           # Web 版运行日志（自动生成）
-```
+> 网页/桌面界面上都有「测试通知」按钮，可以先用它验证配置。
+> 通知失败的原因会写进程序日志（不再是只 print 到控制台）。
 
 ---
 
-## ❓ 常见问题
+## 🐳 Docker 部署
 
-**Q：登录失败怎么办？**  
-A：检查用户名密码是否正确，确认网络能访问 `ids.shiep.edu.cn` 和 `jw.shiep.edu.cn`。若 Cookie 过期，程序会自动尝试重新登录。在 Docker 部署中，请确保代理配置正确。
+### 文件说明
 
-**Q：成绩抓取不到或解析错误？**  
-A：可能是教务系统页面结构发生变化。请检查 `grade_fetcher.py` 中的 XPath 是否仍然有效，必要时更新解析逻辑。
+- `docker-compose.yml`：构建并运行 `grade-monitor`（Web 界面 + 定时监控）。
+- `docker-compose-easyconnect.yml`：运行 [hagb/docker-easyconnect](https://hub.docker.com/r/hagb/docker-easyconnect)，
+  提供 SOCKS5 代理（`1080`）与 noVNC（`5910`），供校外访问教务系统。
 
-**Q：Web 版如何后台运行？**  
-A：可使用 `nohup python app.py &`（Linux）或将其注册为系统服务。注意修改 `app.run(debug=False)` 以避免调试模式。使用 Docker 方式可直接以后台服务运行。
+### 快速启动（含 EasyConnect 代理）
 
-**Q：如何更改监听端口？**  
-A：修改 `app.py` 末尾的 `port` 参数，或在 Docker 中修改 `ports` 映射。
+```bash
+# 1. 先起 VPN 容器，然后通过 http://宿主机IP:5910 登录 VPN 账号
+docker-compose -f docker-compose-easyconnect.yml up -d
 
-**Q：通知没有收到？**  
-A：先点击“测试通知”验证配置是否正确；检查对应服务的 Token/Key 是否有效；查看程序日志是否有错误输出。
+# 2. 再起监控容器（compose 里已设 PROXY_ENABLED=true / PROXY_URL=socks5://host.docker.internal:1080）
+docker-compose up -d
+```
 
-**Q：Docker 容器中无法访问宿主机代理？**  
-A：确保 `docker-compose.yml` 中包含 `extra_hosts` 配置，并确认代理服务（如 EasyConnect）已正确映射端口到宿主机。若使用容器名称，可改用 `--network` 参数共享网络。
+访问 `http://localhost:15029`，在界面里填学号、密码、通知方式，**并把「Web 访问口令」设上**。
+
+> 使用前请把 `docker-compose-easyconnect.yml` 里的 `PASSWORD=1234` 改成你自己的
+> noVNC 密码，并把卷路径 `/vol2/...` 改成你自己宿主机上的目录。
+
+### 数据持久化
+
+- `./data` → `/app/data`：`config.json`、`cookies.txt`、`grade_data_*.txt`
+- `./logs` → `/app/logs`：`web.log`
+
+---
+
+## 🔧 常见问题
+
+**Q：登录失败怎么办？**
+A：确认账号密码正确、网络能访问 `ids.shiep.edu.cn` 与 `jw.shiep.edu.cn`（校外需 VPN）。
+程序会区分「账号密码错误」和「流程本身走不通」，具体原因写在日志里。
+若认证页面改版（例如启用前端密码加密 `pwdDefaultEncryptSalt`），程序会明确报错而不是假装失败。
+
+**Q：查询成功但一条成绩都没有？**
+A：教务系统对「本学期确实没有成绩」和「semesterId 不存在」返回的是**同一个提示页**，
+程序按「暂无成绩」处理并会在日志里记下页面提示。请先用学期下拉框确认学期选对了。
+
+**Q：会话过期了会怎样？**
+A：教务系统在未登录时返回的是 HTTP 200 的登录页。旧版本会把它当成「查询成功但没成绩」，
+于是**永远**查不到成绩也不重登；现在会识别出来、自动重新登录后重试。
+
+**Q：如何让 Web 界面安全一点？**
+A：设置 `web_password`（浏览器会弹登录框）；或把 `web_host` 改成 `127.0.0.1` 只允许本机访问；
+跨网络访问请套反向代理并启用 HTTPS（HTTP Basic 在明文 HTTP 上可被抓包）。
+
+**Q：桌面版查询时界面会卡住吗？**
+A：不会。所有网络请求与重试等待都在后台线程，界面只通过队列更新。
+
+**Q：成绩解析不到 / 解析错了？**
+A：可能是教务系统页面结构变化。程序会区分「页面结构变化」（报错）与「真的没有成绩」，
+请把日志里的报错信息提 Issue。
+
+**Q：如何更改监听端口？**
+A：改配置项 `web_port`（或环境变量 `WEB_PORT`），或在 Docker 里改端口映射。
+
+---
+
+## 📝 更新记录（本次修复）
+
+**安全**
+
+- Web 界面 `debug=True` → `debug=False`。Werkzeug 调试器暴露在 `0.0.0.0` 上等同于开放远程代码执行。
+- 新增可选 **Web 访问口令**（HTTP Basic），未设置时启动日志会明确告警。
+- `SECRET_KEY` 不再硬编码，改为每次启动随机生成。
+- 所有校园网请求加上超时（此前网络卡死会永久挂起调用线程，网页版甚至会卡在启动阶段）。
+- 支持通过 `ca_bundle` 恢复 TLS 证书校验（此前一律 `verify=False`）。
+- 清理仓库内泄露的 `cookies.txt`（CAS 票据）、`grade_data*.txt`（完整成绩单）、
+  `logs/`、`__pycache__/`，并新增 `.gitignore`；`config.json` 清空为模板。
+
+**功能缺陷**
+
+- 修复**登录失败**：组装 CAS 表单时把没有 `value` 的复选框写成了空字符串，
+  于是多提交了 `rememberMe=`，学校 CAS 会直接拒绝登录。现在保留 `None` 让 requests 丢弃该字段。
+- 修复**会话过期被当成「查询成功但无成绩」**：未登录时教务系统返回 HTTP 200 的登录页。
+  现在按最终 URL / 页面特征识别为会话过期并自动重登。
+- 修复 **`semesterId` 换算公式错误**：实测教务系统的权威学期列表显示，
+  `2024-2025.2=364 每学期+20` 只对部分学期成立（2023-2024.1 真实 284 而公式给 304、
+  2023-2024.2 真实 304 而公式给 324、2019-2020.2 真实 163 而公式给 164）。
+  现在改为**从教务系统爬取学期列表取真实 ID**，公式仅作离线兜底，并会用返回行的
+  「学年学期」列反查一致性。
+- 修复网页版 `POST /api/config` 的 `NameError`（引用了未导入的 `config_manager`），
+  提交未知字段时保存设置会 500。
+- 修复桌面版**查询时界面卡死**：网络请求与 `time.sleep` 移出 Tk 主线程。
+- 修复桌面版把「良 / 通过 / 优秀 / 合格」这类非数字成绩误报为「补考要加油」。
+- 修复 `IdsAuth` 的 Session / Cookie 是**类属性**导致实例间共享（「删除 Cookie 再重登」实际没清空）。
+- 修复 Cookie 文件解析遇到含 `=` 的值（base64/JWT）会 `IndexError` 并静默退化。
+- 修复变动检测主键漏掉「课程序号」，导致同学期重修的两条记录互相覆盖。
+- 修复 `detect_changes` 不处理删除、桌面版与网页版成绩文件名不一致（并存兼容旧命名）。
+- 修复并发问题：手动查询与定时任务现在串行执行（此前共用 Session、同时写同一文件）。
+- 修复环境变量启动时被写回 `config.json` 永久覆盖用户设置。
+- 成绩文件改为原子写入（临时文件 + `os.replace`），避免崩溃时丢历史。
+
+**界面**
+
+- 桌面版设置窗口加滚动条、支持自由缩放（原固定 520x780，高 DPI/小屏下按钮会被挤出屏幕）。
+- 桌面版与网页版的学年学期改为**从教务系统获取的学期下拉列表**。
+- 密码框掩码显示；日志自动截断；按钮/状态在后台任务期间正确禁用。
+
+**结构调整**
+
+- 网页版与 docker 版合并为**同一份 `app.py`**，两个模板也统一（保留各自的代理设置项）。
+- 删除从未被引用的 `envconfig.py`。
 
 ---
 
@@ -300,5 +312,5 @@ A：确保 `docker-compose.yml` 中包含 `extra_hosts` 配置，并确认代理
 
 ## 📄 许可证
 
-本项目采用 **MIT License**，详情请见 [LICENSE](LICENSE) 文件。  
+本项目采用 **MIT License**，详情请见 [LICENSE](LICENSE) 文件。
 使用本工具即表示您已理解并同意自行承担所有风险，作者不对因使用本工具造成的任何后果负责。

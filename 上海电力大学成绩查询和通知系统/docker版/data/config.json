@@ -5,9 +5,17 @@
     "query_interval": 300,
     "retry_interval": 60,
     "max_retries": 2,
-    "notification_methods": [
-        "pushplus"
-    ],
+    "connect_timeout": 8,
+    "read_timeout": 20,
+    "ssl_verify": false,
+    "ca_bundle": "",
+    "proxy_enabled": false,
+    "proxy_url": "",
+    "web_host": "0.0.0.0",
+    "web_port": 15029,
+    "web_password": "",
+    "log_retention_days": 7,
+    "notification_methods": [],
     "email_enabled": false,
     "smtp_server": "smtp.qq.com",
     "smtp_port": 465,
@@ -15,11 +23,9 @@
     "sender_password": "",
     "receiver_email": "",
     "serverchan_token": "",
-    "pushplus_token": "***REMOVED***",
+    "pushplus_token": "",
     "wework_webhook": "",
     "telegram_bot_token": "",
     "telegram_chat_id": "",
-    "bark_key": "",
-    "proxy_enabled": true,
-    "proxy_url": "socks5://host.docker.internal:1080"
+    "bark_key": ""
 }

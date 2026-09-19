@@ -37,6 +37,7 @@
                     <button class="btn btn-danger me-2" id="btn-stop" disabled>⏹ 停止</button>
                     <button class="btn btn-primary me-2" id="btn-query">🔍 立即查询</button>
                     <button class="btn btn-info" id="btn-test-notify">📨 测试通知</button>
+                    <button class="btn btn-warning" id="btn-clear-logs">🗑️ 清空日志</button>
                 </div>
             </div>
         </div>
@@ -58,7 +59,10 @@
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">学年学期</label>
-                            <input type="text" class="form-control" id="semester_str" value="{{ config.semester_str }}" placeholder="如 2025-2026.2">
+                            <select class="form-select" id="semester_str">
+                                <option value="{{ config.semester_str }}">{{ config.semester_str }}</option>
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="btn-load-semesters">🔄 从教务系统获取学期列表</button>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">查询间隔 (秒)</label>
@@ -84,6 +88,34 @@
                                 <label><input type="checkbox" value="desktop" {% if 'desktop' in config.notification_methods %}checked{% endif %}> 桌面弹窗</label>
                                 <label><input type="checkbox" value="telegram" {% if 'telegram' in config.notification_methods %}checked{% endif %}> Telegram</label>
                                 <label><input type="checkbox" value="bark" {% if 'bark' in config.notification_methods %}checked{% endif %}> Bark</label>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 安全 / 网络 -->
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Web 访问口令</label>
+                            <input type="password" class="form-control" id="web_password" value="{{ config.web_password }}" placeholder="留空=不鉴权（不推荐）">
+                            <div class="form-text">设置后浏览器会弹出登录框</div>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">连接超时(秒)</label>
+                            <input type="number" class="form-control" id="connect_timeout" value="{{ config.connect_timeout }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">读取超时(秒)</label>
+                            <input type="number" class="form-control" id="read_timeout" value="{{ config.read_timeout }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">日志保留(天)</label>
+                            <input type="number" class="form-control" id="log_retention_days" value="{{ config.log_retention_days }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">CA 证书路径(可选)</label>
+                            <input type="text" class="form-control" id="ca_bundle" value="{{ config.ca_bundle }}" placeholder="填了才校验 TLS">
+                            <div class="form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="ssl_verify" {% if config.ssl_verify %}checked{% endif %}>
+                                <label class="form-check-label" for="ssl_verify">强制校验 TLS 证书</label>
                             </div>
                         </div>
                     </div>
@@ -276,11 +308,52 @@
                 // 代理
                 $('#proxy_enabled').prop('checked', data.proxy_enabled || false);
                 $('#proxy_url').val(data.proxy_url || 'socks5://127.0.0.1:1080');
+                // 安全 / 网络
+                $('#web_password').val(data.web_password || '');
+                $('#connect_timeout').val(data.connect_timeout);
+                $('#read_timeout').val(data.read_timeout);
+                $('#log_retention_days').val(data.log_retention_days);
+                $('#ca_bundle').val(data.ca_bundle || '');
+                $('#ssl_verify').prop('checked', data.ssl_verify || false);
                 // 通知方式
                 let methods = data.notification_methods || [];
                 $('#notification-methods input[type="checkbox"]').each(function() {
                     $(this).prop('checked', methods.includes($(this).val()));
                 });
+            });
+        }
+
+        // 从教务系统拉取可选学期，填进下拉框（force=true 时才弹错误提示）
+        function loadSemesters(force) {
+            $('#btn-load-semesters').prop('disabled', true).text('⏳ 读取中...');
+            $.get('/api/semesters' + (force ? '?refresh=1' : ''), function(data) {
+                $('#btn-load-semesters').prop('disabled', false)
+                    .text('🔄 从教务系统获取学期列表');
+                if (!data.success) {
+                    if (force) {
+                        alert('获取学期列表失败：' + (data.error || '未知错误') +
+                              '\n（可继续使用当前配置的学年学期，如 2025-2026.2）');
+                    }
+                    return;
+                }
+                let current = $('#semester_str').val() || data.current;
+                let html = '';
+                let found = false;
+                // 倒序：最近的学期排在最前
+                data.semesters.slice().reverse().forEach(function(s) {
+                    if (s.semester === current) { found = true; }
+                    html += '<option value="' + s.semester + '">' +
+                            s.label + '（' + s.semester + '）</option>';
+                });
+                if (current && !found) {
+                    html = '<option value="' + current + '">' + current +
+                           '（当前配置，不在列表中）</option>' + html;
+                }
+                $('#semester_str').html(html).val(current);
+            }).fail(function() {
+                $('#btn-load-semesters').prop('disabled', false)
+                    .text('🔄 从教务系统获取学期列表');
+                if (force) { alert('获取学期列表请求失败'); }
             });
         }
 
@@ -359,8 +432,13 @@
         });
 
         // 初始加载与定时刷新（每5秒）
+        $('#btn-load-semesters').click(function() {
+            loadSemesters(true);
+        });
+
         $(document).ready(function() {
             loadConfig();
+            loadSemesters(false);
             refreshStatus();
             setInterval(refreshStatus, 5000);
         });

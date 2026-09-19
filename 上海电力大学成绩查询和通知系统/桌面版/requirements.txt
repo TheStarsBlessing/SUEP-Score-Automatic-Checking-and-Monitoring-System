@@ -1,3 +1,4 @@
 requests>=2.30.0
 lxml>=4.9.2
 win10toast>=0.9   # 用于桌面通知，可选
+pysocks>=1.7.1

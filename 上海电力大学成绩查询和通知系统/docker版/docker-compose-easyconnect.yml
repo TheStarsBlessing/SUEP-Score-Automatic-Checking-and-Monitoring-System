@@ -1,20 +1,22 @@
-services:  
+services:
   easyconnect:
     image: hagb/docker-easyconnect:7.6.3
     container_name: easyconnect
     environment:
-      - PASSWORD=1234
+      # ⚠️ 请改成你自己的 noVNC 登录密码，不要使用默认值
+      - PASSWORD=change-me
       # - PING_ADDR=172.16.1.1   # 注释项，可忽略
       - USE_NOVNC=1
     volumes:
-      - /vol2/1000/Docker/easyconnect2/data:/root
+      # ⚠️ 改成你自己宿主机上的目录（用来持久化 VPN 登录状态）
+      - ./easyconnect-data:/root
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
     ports:
-      - 5910:5901
-      - 1080:1080
+      - 5910:5901     # noVNC，浏览器打开 http://宿主机IP:5910 登录 VPN
+      - 1080:1080     # SOCKS5，供 grade-monitor 使用
       - 8888:8888
       - 54530:54530
       - 1081:8080
