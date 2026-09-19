@@ -8,17 +8,33 @@ docker 版是 ``"data"``（与 docker-compose 挂载的 ./data:/app/data 对应�
 顺带修掉的问题：
 * 旧版把配置、cookie、日志、成绩文件全都用相对路径（相对当前工作目录），
   换个目录启动就会读写到别处；现在一律相对于脚本所在目录。
+* 打包成 exe 后 ``__file__`` 指向 PyInstaller 的 ``%TEMP%\\_MEIxxxx`` 解包目录，
+  用它当基准会把配置/成绩写进临时目录、退出即丢；现在冻结时用 exe 所在目录。
 * 旧版 save_config 直接覆盖写入，进程被杀会留下半截 JSON；
   旧版 load_config 遇到坏 JSON 静默返回默认值，用户会以为配置"丢了"。现在原子写 + 明确报错。
 """
 import json
 import os
+import sys
 import tempfile
 
 # ---------------------------------------------------------------------------
 # 路径
 # ---------------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _app_dir():
+    """程序"自己的"目录。
+
+    **打包成 exe 后必须用 exe 所在目录**：PyInstaller 单文件模式把代码解包到
+    ``%TEMP%\\_MEIxxxx``，此时 ``__file__`` 指向那个临时目录，用它写
+    config.json / cookies.txt / 成绩文件会在退出时被一起清掉
+    （用户看到的现象是"配置改了没保存""成绩历史每次都没了"）。
+    """
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+BASE_DIR = _app_dir()
 
 _SUBDIR = "data"                    # ← docker 版是 "data"，桌面版/网页版是 ""
 
@@ -84,7 +100,12 @@ SECRET_KEYS = ('password', 'sender_password', 'serverchan_token', 'pushplus_toke
 
 
 def _warn(msg):
-    print('[config_manager] %s' % msg)
+    """打印告警。打包成 --windowed 的 exe 后没有 stdout，这里必须容错。"""
+    try:
+        if sys.stdout is not None:
+            print('[config_manager] %s' % msg)
+    except Exception:
+        pass
 
 
 def load_config(path=None):

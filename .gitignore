@@ -21,6 +21,15 @@ grade_data_*.txt
 logs/
 **/logs/
 
+# PyInstaller 构建中间产物（exe 本身是要提交的，见 桌面版/SUEP成绩监控.exe）
+build/
+**/build/
+*.spec
+**/*.spec
+
+# 桌面版 exe 运行时生成的文件（与源码版共用同一套名字，已在上面覆盖）
+selftest_result.txt
+
 # Python 产物
 __pycache__/
 **/__pycache__/

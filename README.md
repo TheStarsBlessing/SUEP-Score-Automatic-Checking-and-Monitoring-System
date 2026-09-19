@@ -59,12 +59,15 @@
 ├── .gitignore
 └── 上海电力大学成绩查询和通知系统/
     ├── 桌面版/                       # Tkinter 桌面程序（数据就在本目录）
-    │   ├── grade_gui.py             #   入口：python grade_gui.py
+    │   ├── SUEP成绩监控.exe          #   ★ 已打包好的 Windows 可执行文件，双击即用
+    │   ├── grade_gui.py             #   源码入口：python grade_gui.py
     │   ├── ids.py                   #   CAS 认证
     │   ├── grade_fetcher.py         #   抓取 / 解析 / 落盘 / 变动检测 / 学期列表
     │   ├── notifier.py              #   多渠道通知
     │   ├── config_manager.py        #   配置与路径（_SUBDIR = ""）
     │   ├── config.json              #   配置模板（机密字段为空）
+    │   ├── icon.ico                 #   图标
+    │   ├── build_exe.bat            #   重新打包 exe 的脚本
     │   ├── requirements.txt
     │   └── start.bat
     ├── 网页版/                       # Flask 网页版（数据就在本目录）
@@ -127,15 +130,33 @@ cd docker版 && pip install -r requirements.txt
 
 ### 5. 运行
 
+**桌面版（推荐：直接跑打包好的 exe，不需要装 Python）**
+
+```text
+把 桌面版/SUEP成绩监控.exe 放到一个**可写目录**（不要放 Program Files），双击运行。
+首次运行会在 exe 旁边自动生成 config.json，填上学号密码再重启即可。
+```
+
+> * 所有数据（`config.json` / `cookies.txt` / `grade_data_*.txt` / `logs/`）都写在
+>   **exe 所在目录**，删掉 exe 不会连带删数据，换目录时把整个文件夹一起搬。
+> * 单文件 exe 每次启动会把运行库解包到 `%TEMP%`，某些杀毒软件可能**误报**，
+>   加白名单即可；介意的话可以用源码运行或自行用 `桌面版/build_exe.bat` 重新打包。
+> * 无界面自检（结果写进 exe 旁边的 `selftest_result.txt`，排查环境问题很有用）：
+>   ```text
+>   SUEP成绩监控.exe --selftest
+>   ```
+
+**桌面版（源码方式）**
+
 ```bash
-# 桌面版
 python 桌面版/grade_gui.py
+```
 
-# 网页版（默认 0.0.0.0:15029）
+**网页版**（默认 `0.0.0.0:15029`）与 **Docker**
+
+```bash
 python 网页版/app.py
-
-# Docker
-cd docker版 && docker-compose up -d        # 再访问 http://localhost:15029
+cd docker版 && docker-compose up -d          # 再访问 http://localhost:15029
 ```
 
 ---
@@ -254,12 +275,24 @@ A：改配置项 `web_port`（或环境变量 `WEB_PORT`），或在 Docker 里�
 
 ---
 
-## 📝 更新记录（本次修复）
+## 📝 更新记录
+
+### 2026-09-19
+
+**新增**
+
+- **桌面版打包成 exe**：`桌面版/SUEP成绩监控.exe`（单文件、带图标、双击即用，不需要装 Python）。
+  同时提供 `桌面版/build_exe.bat` 可随时重新打包。
+- 桌面版新增**无界面自检**：`SUEP成绩监控.exe --selftest`，把登录/学期/成绩/落盘结果写进
+  `selftest_result.txt`，方便排查"换台机器就跑不起来"这类环境问题。
+- **学年学期列表从教务系统爬取**，界面里以**下拉列表**选择（详见下面"功能缺陷"第 3 条）。
+- 桌面版设置窗口加**滚动条**并可自由缩放；窗口/列宽/行高按系统缩放比自适应。
+- Web 界面新增可选**访问口令**（HTTP Basic），未设置时启动日志会明确告警。
 
 **安全**
 
 - Web 界面 `debug=True` → `debug=False`。Werkzeug 调试器暴露在 `0.0.0.0` 上等同于开放远程代码执行。
-- 新增可选 **Web 访问口令**（HTTP Basic），未设置时启动日志会明确告警。
+- 新增可选 **Web 访问口令**（HTTP Basic）。
 - `SECRET_KEY` 不再硬编码，改为每次启动随机生成。
 - 所有校园网请求加上超时（此前网络卡死会永久挂起调用线程，网页版甚至会卡在启动阶段）。
 - 支持通过 `ca_bundle` 恢复 TLS 证书校验（此前一律 `verify=False`）。
@@ -277,6 +310,9 @@ A：改配置项 `web_port`（或环境变量 `WEB_PORT`），或在 Docker 里�
   2023-2024.2 真实 304 而公式给 324、2019-2020.2 真实 163 而公式给 164）。
   现在改为**从教务系统爬取学期列表取真实 ID**，公式仅作离线兜底，并会用返回行的
   「学年学期」列反查一致性。
+- 修复**打包成 exe 后数据写错位置**：PyInstaller 单文件模式把代码解包到 `%TEMP%\_MEIxxxx`，
+  此时 `__file__` 指向临时目录，配置/Cookie/成绩会被写进去并在退出时丢失。
+  现在冻结运行时改用 **exe 所在目录** 作为数据目录。
 - 修复网页版 `POST /api/config` 的 `NameError`（引用了未导入的 `config_manager`），
   提交未知字段时保存设置会 500。
 - 修复桌面版**查询时界面卡死**：网络请求与 `time.sleep` 移出 Tk 主线程。
@@ -293,12 +329,20 @@ A：改配置项 `web_port`（或环境变量 `WEB_PORT`），或在 Docker 里�
 
 - 桌面版设置窗口加滚动条、支持自由缩放（原固定 520x780，高 DPI/小屏下按钮会被挤出屏幕）。
 - 桌面版与网页版的学年学期改为**从教务系统获取的学期下拉列表**。
+- 修复**高 DPI 下成绩表格行高不足、文字被裁**：开启 DPI 感知后字体按真实 DPI 放大，
+  但 `ttk.Treeview` 的默认行高仍是未缩放的固定像素。现在行高按字体实际行高计算
+  （实测 175% 缩放：字体行高 28px → 行高 42px），窗口/列宽也按缩放比放大并夹在屏幕内。
 - 密码框掩码显示；日志自动截断；按钮/状态在后台任务期间正确禁用。
 
 **结构调整**
 
 - 网页版与 docker 版合并为**同一份 `app.py`**，两个模板也统一（保留各自的代理设置项）。
 - 删除从未被引用的 `envconfig.py`。
+
+### 2026-07-01
+
+- 修正了一些已知问题：无法访问目标网站时仍能打开管理页面；查询失败或结果为空时不写入文件；
+  新增日志清理功能与最新查询时间显示。
 
 ---
 

@@ -25,9 +25,11 @@
 """
 import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from datetime import datetime
 from tkinter import messagebox, scrolledtext, ttk
 
@@ -41,6 +43,73 @@ METHODS = ['email', 'serverchan', 'pushplus', 'wework', 'desktop', 'telegram', '
 INT_KEYS = ('query_interval', 'retry_interval', 'max_retries', 'smtp_port',
             'connect_timeout', 'read_timeout', 'log_retention_days')
 BOOL_KEYS = ('ssl_verify', 'proxy_enabled')
+
+
+def setup_dpi():
+    """开启高 DPI 感知，返回缩放比（1.0 = 96 DPI）。必须在创建 Tk 根窗口**之前**调用。
+
+    注意：只调用它是**不够**的。开启感知后 Tk 的字体按真实 DPI 放大了，
+    但 ttk.Treeview 的 ``rowheight`` 默认仍是未缩放的固定像素 —— 结果行高比字矮，
+    文字被裁掉（表现为"成绩显示区域行高太低、文字显示不正常"）。
+    所以还要按字体实际行高显式设置 rowheight（见 create_widgets）。
+    """
+    scale = 1.0
+    try:
+        from ctypes import windll
+        try:
+            windll.shcore.SetProcessDpiAwareness(1)       # PROCESS_SYSTEM_DPI_AWARE
+        except Exception:
+            windll.user32.SetProcessDPIAware()
+        try:
+            dpi = windll.user32.GetDpiForSystem()
+        except Exception:
+            hdc = windll.user32.GetDC(0)
+            dpi = windll.gdi32.GetDeviceCaps(hdc, 88)     # LOGPIXELSX
+            windll.user32.ReleaseDC(0, hdc)
+        if dpi:
+            scale = max(1.0, round(dpi / 96.0, 2))
+    except Exception:
+        scale = 1.0
+    return scale
+
+
+def detect_ui_scale(root, fallback=1.0):
+    """按当前默认字体的实际行高推算界面缩放比。
+
+    比直接信 DPI 数值更可靠：布局要跟的是"字有多大"，而字已经按 DPI 缩放过了
+    （96 DPI 下 TkDefaultFont 行高约 16px）。
+    """
+    try:
+        line = tkfont.nametofont('TkDefaultFont').metrics('linespace')
+        if line:
+            return max(1.0, round(line / 16.0, 2))
+    except Exception:
+        pass
+    return fallback
+
+
+def build_tls_kwargs(cfg):
+    """把配置里的超时/证书/代理整理成 IdsAuth 的参数。"""
+    try:
+        timeout = (int(cfg.get('connect_timeout', 8) or 8),
+                   int(cfg.get('read_timeout', 20) or 20))
+    except (TypeError, ValueError):
+        timeout = (8, 20)
+    return {
+        'timeout': timeout,
+        'ssl_verify': bool(cfg.get('ssl_verify', False)),
+        'ca_bundle': (cfg.get('ca_bundle') or '').strip() or None,
+        'proxy': (cfg.get('proxy_url') or '').strip() if cfg.get('proxy_enabled') else None,
+    }
+
+
+def _safe_print(text):
+    """打包成 --windowed 的 exe 后没有 stdout，输出要容错。"""
+    try:
+        if sys.stdout is not None:
+            print(text)
+    except Exception:
+        pass
 
 
 class ScrollableFrame:
@@ -86,16 +155,23 @@ class ScrollableFrame:
 
 
 class SettingsWindow:
-    def __init__(self, parent, config, callback, post=None, semesters=None):
+    def __init__(self, parent, config, callback, post=None, semesters=None, ui_scale=1.0):
         self.parent = parent
         self.config = dict(config)
         self.callback = callback
         self.post = post if callable(post) else (lambda *a: None)
+        self.ui_scale = max(1.0, float(ui_scale or 1.0))
 
         self.window = tk.Toplevel(parent)
         self.window.title('设置')
-        self.window.geometry('620x660')
-        self.window.minsize(520, 400)
+        size = (int(620 * self.ui_scale), int(660 * self.ui_scale))
+        try:                       # 内容本身可滚动，窗口别超出屏幕
+            size = (min(size[0], max(520, self.window.winfo_screenwidth() - 60)),
+                    min(size[1], max(400, self.window.winfo_screenheight() - 120)))
+        except Exception:
+            pass
+        self.window.geometry('%dx%d' % size)
+        self.window.minsize(int(520 * self.ui_scale), int(400 * self.ui_scale))
         # 可自由缩放：高 DPI / 小屏下也不会把"保存"按钮挤出屏幕
         self.window.resizable(True, True)
 
@@ -277,11 +353,23 @@ class SettingsWindow:
 
 
 class GradeGUI:
-    def __init__(self, root):
+    def __init__(self, root, ui_scale=None):
         self.root = root
         self.root.title('SUEP 成绩自动查询')
-        self.root.geometry('1020x740')
-        self.root.minsize(760, 560)
+        # 界面缩放：高 DPI 下字体被放大，窗口/列宽/行高都要跟着放大，否则会挤在一起
+        self.ui_scale = max(1.0, float(ui_scale)) if ui_scale else detect_ui_scale(root)
+        width, height = int(1020 * self.ui_scale), int(740 * self.ui_scale)
+        try:                       # 别让窗口比屏幕还大
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            width = min(width, max(700, screen_w - 60))
+            height = min(height, max(520, screen_h - 120))
+            min_w = min(int(760 * self.ui_scale), max(600, screen_w - 80))
+            min_h = min(int(560 * self.ui_scale), max(420, screen_h - 160))
+        except Exception:
+            min_w, min_h = 760, 560
+        self.root.geometry('%dx%d' % (width, height))
+        self.root.minsize(min_w, min_h)
 
         self.config = load_config()
 
@@ -425,6 +513,20 @@ class GradeGUI:
         self.time_label = tk.Label(control_frame, text='上次查询: 无', fg='gray')
         self.time_label.pack(side=tk.LEFT, padx=10)
 
+        # 行高必须跟字体走：开启 DPI 感知后字体被放大，而 Treeview 的默认
+        # rowheight 仍是未缩放的固定像素，不显式设置就会"行高太低、文字被裁"
+        try:
+            line = tkfont.nametofont('TkDefaultFont').metrics('linespace')
+        except Exception:
+            line = 16
+        row_h = max(24, int(round((line or 16) * 1.5)))
+        style = ttk.Style(self.root)
+        try:
+            style.configure('Treeview', rowheight=row_h)
+            style.configure('Treeview.Heading', padding=(6, max(3, int(row_h * 0.14))))
+        except Exception:
+            pass
+
         self.tree = ttk.Treeview(
             self.root,
             columns=('semester', 'code', 'seq', 'name', 'category',
@@ -437,7 +539,8 @@ class GradeGUI:
         ]
         for col_id, text, width in col_config:
             self.tree.heading(col_id, text=text)
-            self.tree.column(col_id, width=width, anchor='center')
+            self.tree.column(col_id, width=int(width * self.ui_scale),
+                             minwidth=int(width * 0.6 * self.ui_scale), anchor='center')
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         log_frame = tk.Frame(self.root)
@@ -453,7 +556,8 @@ class GradeGUI:
 
     def open_settings(self):
         self._settings = SettingsWindow(self.root, self.config, self._on_config_saved,
-                                       post=self.post, semesters=self.semesters)
+                                        post=self.post, semesters=self.semesters,
+                                        ui_scale=self.ui_scale)
 
     def _on_config_saved(self, new_config):
         self.config = new_config
@@ -501,19 +605,7 @@ class GradeGUI:
     # 登录 / 重新登录（工作线程）
     # ------------------------------------------------------------------
     def _tls_kwargs(self):
-        cfg = self.config
-        try:
-            timeout = (int(cfg.get('connect_timeout', 8) or 8),
-                       int(cfg.get('read_timeout', 20) or 20))
-        except (TypeError, ValueError):
-            timeout = (8, 20)
-        return {
-            'timeout': timeout,
-            'ssl_verify': bool(cfg.get('ssl_verify', False)),
-            'ca_bundle': (cfg.get('ca_bundle') or '').strip() or None,
-            'proxy': (cfg.get('proxy_url') or '').strip()
-                     if cfg.get('proxy_enabled') else None,
-        }
+        return build_tls_kwargs(self.config)
 
     def _boot_task(self, sem_str):
         """启动：登录 -> 拉学期列表 -> 查一次成绩（都在工作线程里）。
@@ -846,7 +938,120 @@ class GradeGUI:
         self.root.destroy()
 
 
+def run_selftest(out_path=None):
+    """无界面自检：真实登录 + 取学期列表 + 抓一次成绩 + 落盘，结果写文件。
+
+    窗口程序（--windowed）没有 stdout，所以结果必须写成文件，才能脚本化验证打包产物。
+    用法： ``SUEP成绩监控.exe --selftest [--out 结果文件]``
+    返回 0 表示全部正常。
+    """
+    import traceback
+    lines = []
+    ok = True
+
+    def add(text):
+        lines.append(text)
+
+    add('=== SUEP 桌面版自检 %s ===' % datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    add('python      : %s' % sys.version.split()[0])
+    add('frozen      : %s' % bool(getattr(sys, 'frozen', False)))
+    add('exe         : %s' % (sys.executable if getattr(sys, 'frozen', False) else '(源码运行)'))
+    add('app_dir     : %s' % config_manager.BASE_DIR)
+    add('config_file : %s' % config_manager.CONFIG_FILE)
+    add('config 存在 : %s' % os.path.exists(config_manager.CONFIG_FILE))
+    add('MEIPASS     : %s' % getattr(sys, '_MEIPASS', '(无)'))
+
+    try:
+        cfg = load_config()
+        add('username    : %s' % (cfg.get('username') or '(空)'))
+        add('semester    : %s' % (cfg.get('semester_str') or '(空)'))
+        add('timeout     : 连接 %s / 读取 %s' % (cfg.get('connect_timeout'),
+                                                cfg.get('read_timeout')))
+        add('proxy       : %s' % (cfg.get('proxy_url') if cfg.get('proxy_enabled') else '未启用'))
+
+        if not cfg.get('username') or not cfg.get('password'):
+            add('! 未配置学号/密码，跳过联网检查')
+            ok = False
+        else:
+            kwargs = build_tls_kwargs(cfg)
+            t0 = time.time()
+            auth = IdsAuth(**kwargs)
+            logged = auth.login(cfg['username'], cfg['password'])
+            add('login       : %s  (%.1fs)  %s'
+                % (logged, time.time() - t0, auth.last_error or ''))
+            if not logged:
+                ok = False
+            else:
+                # 把 cookie 一并落盘并校验位置：config / cookies / 成绩 / logs
+                # 这四样都必须落在程序目录，落到 %TEMP% 解包目录就会退出即丢
+                try:
+                    config_manager.ensure_dirs()
+                    cookie_path = config_manager.COOKIE_FILE
+                    with open(cookie_path, 'w', encoding='utf-8', newline='\n') as f:
+                        f.write(dump_cookie_string(auth.cookies))
+                    add('cookies     : %s（%d 个）' % (cookie_path, len(auth.cookies)))
+                    add('cookies 存在: %s' % os.path.exists(cookie_path))
+                    if not os.path.exists(cookie_path):
+                        ok = False
+                except OSError as exc:
+                    add('cookies 写入失败: %s' % exc)
+                    ok = False
+
+                fetcher = GradeFetcher(auth, logger=lambda m: add('  [fetcher] %s' % m))
+                semesters = fetcher.fetch_semester_list(force=True)
+                add('semesters   : %d 个' % len(semesters))
+                if semesters:
+                    add('  最新      : %s (id=%s)'
+                        % (semesters[-1]['semester'], semesters[-1]['id']))
+                grades = fetcher.fetch_by_semester_str(cfg.get('semester_str'))
+                add('grades      : %d 条' % len(grades))
+                for row in grades[:3]:
+                    add('   %s  %s  %s  成绩 %s'
+                        % (row['semester'], row['code'], row['name'], row['score']))
+                if not grades:
+                    ok = False
+                else:
+                    saved = GradeFetcher.save_to_file(grades, cfg.get('semester_str'))
+                    add('saved       : %s' % saved)
+                    add('saved 存在  : %s' % os.path.exists(saved))
+                    # 关键：文件必须落在**程序目录**，不能落在 %TEMP% 解包目录
+                    inside_temp = bool(getattr(sys, '_MEIPASS', None)) and \
+                        os.path.abspath(saved).startswith(
+                            os.path.abspath(getattr(sys, '_MEIPASS')))
+                    add('落在程序目录: %s' % (not inside_temp))
+                    if not os.path.exists(saved) or inside_temp:
+                        ok = False
+    except Exception:
+        add('EXCEPTION:\n%s' % traceback.format_exc())
+        ok = False
+
+    add('RESULT      : %s' % ('OK' if ok else 'FAIL'))
+    text = '\n'.join(lines)
+
+    target = out_path or os.path.join(config_manager.BASE_DIR, 'selftest_result.txt')
+    try:
+        with open(target, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(text + '\n')
+    except OSError:
+        pass
+    _safe_print(text)
+    return 0 if ok else 1
+
+
 if __name__ == '__main__':
+    # 无界面自检：给打包产物做脚本化验证用
+    if '--selftest' in sys.argv:
+        out_file = None
+        if '--out' in sys.argv:
+            idx = sys.argv.index('--out')
+            if idx + 1 < len(sys.argv):
+                out_file = sys.argv[idx + 1]
+        sys.exit(run_selftest(out_file))
+
+    # 高 DPI 适配：必须在创建根窗口之前开启感知，并把缩放比传进去
+    # （只开启感知不够，行高/列宽/窗口尺寸都要跟着字体放大，见 setup_dpi 的说明）
+    ui_scale = setup_dpi()
+
     root = tk.Tk()
-    gui = GradeGUI(root)
+    gui = GradeGUI(root, ui_scale=ui_scale)
     root.mainloop()
