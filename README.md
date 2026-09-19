@@ -59,7 +59,6 @@
 ├── .gitignore
 └── 上海电力大学成绩查询和通知系统/
     ├── 桌面版/                       # Tkinter 桌面程序（数据就在本目录）
-    │   ├── SUEP成绩监控.exe          #   ★ 已打包好的 Windows 可执行文件，双击即用
     │   ├── grade_gui.py             #   源码入口：python grade_gui.py
     │   ├── ids.py                   #   CAS 认证
     │   ├── grade_fetcher.py         #   抓取 / 解析 / 落盘 / 变动检测 / 学期列表
@@ -67,7 +66,7 @@
     │   ├── config_manager.py        #   配置与路径（_SUBDIR = ""）
     │   ├── config.json              #   配置模板（机密字段为空）
     │   ├── icon.ico                 #   图标
-    │   ├── build_exe.bat            #   重新打包 exe 的脚本
+    │   ├── build_exe.bat            #   自行打包 exe 的脚本
     │   ├── requirements.txt
     │   └── start.bat
     ├── 网页版/                       # Flask 网页版（数据就在本目录）
@@ -130,21 +129,26 @@ cd docker版 && pip install -r requirements.txt
 
 ### 5. 运行
 
-**桌面版（推荐：直接跑打包好的 exe，不需要装 Python）**
+**桌面版（推荐：直接用打包好的 exe，不需要装 Python）**
+
+从 **[Releases 页面](https://github.com/TheStarsBlessing/SUEP-Score-Automatic-Checking-and-Monitoring-System/releases/latest)**
+下载最新的 `SUEP-Grade-Monitor-v*.exe`（约 24 MB）：
 
 ```text
-把 桌面版/SUEP成绩监控.exe 放到一个**可写目录**（不要放 Program Files），双击运行。
+把它放到一个**可写目录**（不要放 Program Files），双击运行。
 首次运行会在 exe 旁边自动生成 config.json，填上学号密码再重启即可。
 ```
 
 > * 所有数据（`config.json` / `cookies.txt` / `grade_data_*.txt` / `logs/`）都写在
 >   **exe 所在目录**，删掉 exe 不会连带删数据，换目录时把整个文件夹一起搬。
-> * 单文件 exe 每次启动会把运行库解包到 `%TEMP%`，某些杀毒软件可能**误报**，
+> * 单文件 exe 每次启动会把运行库解包到系统临时目录，某些杀毒软件可能**误报**，
 >   加白名单即可；介意的话可以用源码运行或自行用 `桌面版/build_exe.bat` 重新打包。
 > * 无界面自检（结果写进 exe 旁边的 `selftest_result.txt`，排查环境问题很有用）：
 >   ```text
->   SUEP成绩监控.exe --selftest
+>   SUEP-Grade-Monitor-v1.0.0.exe --selftest
 >   ```
+> * exe 不放在 git 仓库里（避免仓库体积失控），只通过 Releases 分发；
+>   需要自己打包就用 `桌面版/build_exe.bat`。
 
 **桌面版（源码方式）**
 
